@@ -1,6 +1,7 @@
 package contacts
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -371,13 +372,13 @@ func (h *Handler) DeleteCustomField(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Custom field deleted successfully"})
 }
 
-func (h *Handler) saveCustomValues(ctx fiber.Ctx, companyID, contactID uuid.UUID, customValues map[string]string) {
+func (h *Handler) saveCustomValues(ctx context.Context, companyID, contactID uuid.UUID, customValues map[string]string) {
 	for key, val := range customValues {
 		var field struct {
 			ID        uuid.UUID `db:"id"`
 			FieldType string    `db:"field_type"`
 		}
-		err := h.db.GetContext(ctx.UserContext(), &field, `SELECT id, field_type FROM custom_fields WHERE company_id = $1 AND key = $2`, companyID, key)
+		err := h.db.GetContext(ctx, &field, `SELECT id, field_type FROM custom_fields WHERE company_id = $1 AND key = $2`, companyID, key)
 		if err == nil {
 			if !validateCustomValueType(val, field.FieldType) {
 				continue // Skip storing invalid data format
@@ -385,7 +386,7 @@ func (h *Handler) saveCustomValues(ctx fiber.Ctx, companyID, contactID uuid.UUID
 			upsertQuery := `INSERT INTO contact_custom_values (id, contact_id, custom_field_id, value) 
 				VALUES ($1, $2, $3, $4) 
 				ON CONFLICT (contact_id, custom_field_id) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`
-			_, _ = h.db.ExecContext(ctx.UserContext(), upsertQuery, uuid.New(), contactID, field.ID, val)
+			_, _ = h.db.ExecContext(ctx, upsertQuery, uuid.New(), contactID, field.ID, val)
 		}
 	}
 }

@@ -12,7 +12,7 @@ RUN apk add --no-cache ca-certificates git
 # Copy source code
 COPY . .
 
-# Delete any stale go.sum and download fresh dependencies directly
+# Download dependencies
 RUN rm -f go.sum && go mod download
 
 # Build static binary

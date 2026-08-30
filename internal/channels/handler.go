@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -324,7 +325,7 @@ func NormalizePhone(phone string) string {
 	return re.ReplaceAllString(phone, "")
 }
 
-func (h *Handler) autoLinkContact(ctx fiber.Ctx, companyID uuid.UUID, name, phone, email string) {
+func (h *Handler) autoLinkContact(ctx context.Context, companyID uuid.UUID, name, phone, email string) {
 	if name == "" {
 		if phone != "" {
 			name = fmt.Sprintf("Contato %s", phone)
@@ -337,9 +338,9 @@ func (h *Handler) autoLinkContact(ctx fiber.Ctx, companyID uuid.UUID, name, phon
 	var findErr error
 
 	if phone != "" {
-		findErr = h.db.GetContext(ctx.UserContext(), &existing, `SELECT id FROM contacts WHERE company_id = $1 AND phone = $2 LIMIT 1`, companyID, phone)
+		findErr = h.db.GetContext(ctx, &existing, `SELECT id FROM contacts WHERE company_id = $1 AND phone = $2 LIMIT 1`, companyID, phone)
 	} else if email != "" {
-		findErr = h.db.GetContext(ctx.UserContext(), &existing, `SELECT id FROM contacts WHERE company_id = $1 AND email = $2 LIMIT 1`, companyID, email)
+		findErr = h.db.GetContext(ctx, &existing, `SELECT id FROM contacts WHERE company_id = $1 AND email = $2 LIMIT 1`, companyID, email)
 	}
 
 	if findErr != nil && errors.Is(findErr, sql.ErrNoRows) {
@@ -354,7 +355,7 @@ func (h *Handler) autoLinkContact(ctx fiber.Ctx, companyID uuid.UUID, name, phon
 		}
 
 		insertQuery := `INSERT INTO contacts (id, company_id, name, phone, email, status) VALUES ($1, $2, $3, $4, $5, 'active')`
-		_, _ = h.db.ExecContext(ctx.UserContext(), insertQuery, newID, companyID, name, p, e)
+		_, _ = h.db.ExecContext(ctx, insertQuery, newID, companyID, name, p, e)
 		log.Printf("[ContactAutoLink] Created new contact %s (%s) for company %s", name, phone, companyID)
 	}
 }
