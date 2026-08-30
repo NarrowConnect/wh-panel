@@ -9,8 +9,8 @@ RUN apk add --no-cache ca-certificates git
 # Copy source code
 COPY . .
 
-# Clean and generate authentic checksums directly from Go proxy
-RUN rm -f go.sum && go mod download
+# Fetch exact latest version of dependencies and resolve checksums
+RUN rm -f go.sum && go get github.com/dop251/goja@latest && go mod tidy
 
 # Build static binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
