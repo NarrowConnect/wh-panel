@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS queue_rules;
+DROP TABLE IF EXISTS queue_users;
+DROP TABLE IF EXISTS queues;

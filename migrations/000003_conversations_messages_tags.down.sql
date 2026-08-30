@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS conversation_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS conversations;

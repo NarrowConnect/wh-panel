@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS crm_cards;
+DROP TABLE IF EXISTS crm_stages;
+DROP TABLE IF EXISTS crm_pipelines;

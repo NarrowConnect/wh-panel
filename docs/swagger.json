@@ -1,0 +1,214 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Plataforma de Atendimento Omnichannel (SaaS Multi-Tenant) API",
+    "description": "Especificação completa da API Go (Fiber + PostgreSQL RLS + Redis) estilo Chatwoot + Kommo + Flow Engine",
+    "version": "1.0.0"
+  },
+  "host": "localhost:8080",
+  "basePath": "/api/v1",
+  "schemes": ["http", "https"],
+  "securityDefinitions": {
+    "Bearer": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header",
+      "description": "JWT Authorization header using the Bearer scheme. Example: \"Bearer {token}\""
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Healthcheck endpoint para EasyPanel e load balancers",
+        "produces": ["application/json"],
+        "responses": {
+          "200": { "description": "Status OK com estado do Postgres e Redis" }
+        }
+      }
+    },
+    "/companies": {
+      "post": {
+        "summary": "Registro de nova Empresa/Tenant + Usuário Admin inicial",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "slug": { "type": "string" },
+                "admin_name": { "type": "string" },
+                "admin_email": { "type": "string" },
+                "password": { "type": "string" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": { "description": "Empresa e usuário admin criados com sucesso" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Autenticação por E-mail e Senha",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": { "type": "string" },
+                "password": { "type": "string" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Access token e Refresh token gerados" }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Renovação de Access Token via Refresh Token",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "responses": {
+          "200": { "description": "Novo Access Token gerado" }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Retorna o perfil do usuário logado e dados da empresa",
+        "security": [{ "Bearer": [] }],
+        "produces": ["application/json"],
+        "responses": {
+          "200": { "description": "Dados do perfil do usuário" }
+        }
+      }
+    },
+    "/channels": {
+      "get": {
+        "summary": "Lista canais configurados no tenant",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de canais" } }
+      },
+      "post": {
+        "summary": "Conecta novo canal (WhatsApp Meta, Instagram, Webchat)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "201": { "description": "Canal criado" } }
+      }
+    },
+    "/contacts": {
+      "get": {
+        "summary": "Lista contatos com busca e paginação",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de contatos" } }
+      },
+      "post": {
+        "summary": "Cadastra novo contato",
+        "security": [{ "Bearer": [] }],
+        "responses": { "201": { "description": "Contato cadastrado" } }
+      }
+    },
+    "/contacts/merge": {
+      "post": {
+        "summary": "Mescla dois contatos duplicados em um único registro",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Contatos mesclados" } }
+      }
+    },
+    "/conversations": {
+      "get": {
+        "summary": "Lista conversas ativas por status e atendente",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de conversas" } }
+      }
+    },
+    "/conversations/{id}/messages": {
+      "get": {
+        "summary": "Histórico de mensagens da conversa",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Mensagens da conversa" } }
+      },
+      "post": {
+        "summary": "Envia mensagem ou nota interna whisper (is_internal: true)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "201": { "description": "Mensagem registrada e notificada via WebSocket" } }
+      }
+    },
+    "/queues": {
+      "get": {
+        "summary": "Lista filas de atendimento e operadores",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de filas" } }
+      }
+    },
+    "/dashboard/kpis": {
+      "get": {
+        "summary": "Métricas e KPIs em tempo real (TMPR, TMR, Sentimento)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Métricas consolidadas do dashboard" } }
+      }
+    },
+    "/templates": {
+      "get": {
+        "summary": "Lista templates de mensagem",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de templates" } }
+      }
+    },
+    "/crm/pipelines/{id}/kanban": {
+      "get": {
+        "summary": "Quadro Kanban com colunas e cards de negócio",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Quadro Kanban completo" } }
+      }
+    },
+    "/flows": {
+      "get": {
+        "summary": "Lista fluxos de automação visual",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de fluxos" } }
+      }
+    },
+    "/campaigns": {
+      "get": {
+        "summary": "Lista campanhas de disparo em massa",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de campanhas" } }
+      }
+    },
+    "/reports/conversations/export/csv": {
+      "get": {
+        "summary": "Download de relatório em formato CSV",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Arquivo CSV baixado" } }
+      }
+    },
+    "/billing/subscription": {
+      "get": {
+        "summary": "Consulta plano e assinatura da empresa",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Assinatura do tenant" } }
+      }
+    },
+    "/billing/ai-providers": {
+      "get": {
+        "summary": "Lista provedores de IA configurados (OpenAI, Anthropic, DeepSeek)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Provedores de IA" } }
+      }
+    }
+  }
+}
