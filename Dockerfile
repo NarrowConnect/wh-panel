@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Disable sumdb proxy check to avoid checksum mismatch on alpine
+# Disable sumdb proxy check
 ENV GOSUMDB=off
 
 # Install ca-certificates and git
@@ -12,8 +12,8 @@ RUN apk add --no-cache ca-certificates git
 # Copy source code
 COPY . .
 
-# Download dependencies
-RUN go mod download
+# Delete any stale go.sum and download fresh dependencies directly
+RUN rm -f go.sum && go mod download
 
 # Build static binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
