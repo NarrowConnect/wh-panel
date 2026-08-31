@@ -7,6 +7,11 @@ bin/
 *.dylib
 wh-panel
 
+# Frontend
+web/node_modules/
+web/dist/
+.npm/
+
 # Test and coverage artifacts
 *.out
 *.test

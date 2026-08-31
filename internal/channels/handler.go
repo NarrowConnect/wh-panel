@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -16,30 +17,57 @@ import (
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
+	"wh-panel/pkg/meta"
+	"wh-panel/pkg/waha"
 )
 
 type Handler struct {
-	db        *sqlx.DB
-	jwtSecret string
+	db         *sqlx.DB
+	jwtSecret  string
+	metaClient *meta.Client
+	wahaClient *waha.Client
 }
 
-func NewHandler(db *sqlx.DB, jwtSecret string) *Handler {
+func NewHandler(db *sqlx.DB, jwtSecret string, metaClient *meta.Client, wahaClient *waha.Client) *Handler {
 	return &Handler{
-		db:        db,
-		jwtSecret: jwtSecret,
+		db:         db,
+		jwtSecret:  jwtSecret,
+		metaClient: metaClient,
+		wahaClient: wahaClient,
 	}
 }
 
 func (h *Handler) RegisterPublicRoutes(router fiber.Router) {
 	webhooks := router.Group("/webhooks")
-	webhooks.Get("/:channel_type/:channel_id", h.VerifyWebhook)
-	webhooks.Post("/:channel_type/:channel_id", h.ReceiveWebhook)
+
+	// Global Narrow Meta App Webhook Endpoints
+	webhooks.Get("/meta", h.VerifyGlobalMetaWebhook)
+	webhooks.Post("/meta", h.ReceiveGlobalMetaWebhook)
+
+	// Channel-specific Meta Webhooks
+	webhooks.Get("/meta/:channel_id", h.VerifyChannelMetaWebhook)
+	webhooks.Post("/meta/:channel_id", h.ReceiveChannelMetaWebhook)
+
+	// WAHA (WhatsApp Non-Official) Webhook Endpoints
+	webhooks.Post("/waha", h.ReceiveWAHAWebhook)
+	webhooks.Post("/waha/:channel_id", h.ReceiveWAHAWebhook)
+
+	// Generic fallback
+	webhooks.Get("/:channel_type/:channel_id", h.VerifyChannelMetaWebhook)
+	webhooks.Post("/:channel_type/:channel_id", h.ReceiveGenericWebhook)
 }
 
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 	channels := router.Group("/channels")
 	channels.Get("/", h.ListChannels)
 	channels.Post("/", tenant.RequireRole("admin", "supervisor"), h.CreateChannel)
+	channels.Get("/meta/config", h.GetMetaAppConfig)
+	channels.Get("/waha/status", h.GetWAHAStatus)
+	channels.Post("/waha/sessions", tenant.RequireRole("admin", "supervisor"), h.CreateWAHASession)
+	channels.Get("/waha/sessions/:session/qr", h.GetWAHAQRCode)
+	channels.Get("/waha/sessions/:session/status", h.GetWAHASessionStatus)
+	channels.Post("/waha/sessions/:session/logout", tenant.RequireRole("admin", "supervisor"), h.LogoutWAHASession)
+	channels.Post("/waha/sessions/:session/restart", tenant.RequireRole("admin", "supervisor"), h.RestartWAHASession)
 	channels.Get("/:id", h.GetChannel)
 	channels.Put("/:id", tenant.RequireRole("admin", "supervisor"), h.UpdateChannel)
 	channels.Delete("/:id", tenant.RequireRole("admin"), h.DeleteChannel)
@@ -56,10 +84,7 @@ func (h *Handler) ListChannels(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch channels"})
 	}
 
-	return c.JSON(fiber.Map{
-		"channels": channelsList,
-		"total":    len(channelsList),
-	})
+	return c.JSON(channelsList)
 }
 
 // GetChannel retrieves a single channel by ID
@@ -95,19 +120,18 @@ func (h *Handler) CreateChannel(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
 
-	if req.Type == "" || req.Name == "" || len(req.Credentials) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Type, name, and credentials are required"})
+	if req.Type == "" || req.Name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Type and name are required"})
 	}
 
-	// Encrypt credentials JSON
-	credBytes, err := json.Marshal(req.Credentials)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid credentials object"})
-	}
-
-	encryptedCreds, err := crypto.EncryptAES(string(credBytes), h.jwtSecret)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to encrypt channel credentials"})
+	// Encrypt credentials JSON if provided
+	var encryptedCreds string
+	if len(req.Credentials) > 0 {
+		credBytes, _ := json.Marshal(req.Credentials)
+		enc, err := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+		if err == nil {
+			encryptedCreds = enc
+		}
 	}
 
 	configBytes, _ := json.Marshal(req.Config)
@@ -121,7 +145,7 @@ func (h *Handler) CreateChannel(c *fiber.Ctx) error {
 		RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
 
 	var newChannel models.Channel
-	err = h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, req.Type, req.Name, encryptedCreds, string(configBytes))
+	err := h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, req.Type, req.Name, encryptedCreds, string(configBytes))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create channel"})
 	}
@@ -207,76 +231,240 @@ func (h *Handler) DeleteChannel(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Channel deleted successfully"})
 }
 
-// VerifyWebhook handles Meta WhatsApp / Instagram GET verification challenge with verify_token check
-func (h *Handler) VerifyWebhook(c *fiber.Ctx) error {
-	channelIDStr := c.Params("channel_id")
-	channelID, err := uuid.Parse(channelIDStr)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid channel_id"})
-	}
+// ==========================================
+// NARROW META APP WEBHOOK HANDLERS
+// ==========================================
 
+// GetMetaAppConfig returns verification details for configuring Narrow's Meta App
+func (h *Handler) GetMetaAppConfig(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{
+		"app_id":       h.metaClient.AppID(),
+		"verify_token": h.metaClient.VerifyToken(),
+		"api_version":  h.metaClient.APIVersion(),
+		"webhook_url":  fmt.Sprintf("%s/webhooks/meta", c.BaseURL()),
+	})
+}
+
+// VerifyGlobalMetaWebhook handles GET verification challenge from Narrow's Meta App
+func (h *Handler) VerifyGlobalMetaWebhook(c *fiber.Ctx) error {
 	mode := c.Query("hub.mode")
 	token := c.Query("hub.verify_token")
 	challenge := c.Query("hub.challenge")
 
 	if mode == "subscribe" && token != "" {
-		var configJSON string
-		_ = h.db.GetContext(c.UserContext(), &configJSON, `SELECT config_json::text FROM channels WHERE id = $1`, channelID)
-
-		var cfg map[string]interface{}
-		_ = json.Unmarshal([]byte(configJSON), &cfg)
-
-		expectedToken, _ := cfg["verify_token"].(string)
-		if expectedToken != "" && expectedToken != token {
+		if !h.metaClient.VerifyWebhookToken(token) {
+			log.Printf("[MetaWebhook] Verify token mismatch: received '%s'", token)
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Verify token mismatch"})
 		}
-
+		log.Println("[MetaWebhook] Narrow Meta App webhook verified successfully!")
 		return c.SendString(challenge)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"status":  "active",
-		"message": "Webhook receiver ready",
-	})
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ready", "app": "Narrow Meta App"})
 }
 
-// ReceiveWebhook handles incoming events from Meta WhatsApp, Instagram, Webchat or external channels
-func (h *Handler) ReceiveWebhook(c *fiber.Ctx) error {
-	channelType := c.Params("channel_type")
-	channelIDStr := c.Params("channel_id")
+// ReceiveGlobalMetaWebhook handles POST events from Narrow's Meta App with HMAC verification
+func (h *Handler) ReceiveGlobalMetaWebhook(c *fiber.Ctx) error {
+	signature := c.Get("X-Hub-Signature-256")
+	body := c.Body()
 
-	channelID, err := uuid.Parse(channelIDStr)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid channel_id"})
-	}
-
-	// Fetch channel to know tenant/company_id
-	var channel models.Channel
-	query := `SELECT id, company_id, type, name, status, config_json FROM channels WHERE id = $1`
-	if err := h.db.GetContext(c.UserContext(), &channel, query, channelID); err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Target channel not found"})
+	if !h.metaClient.VerifySignature(body, signature) {
+		log.Printf("[MetaWebhook] Invalid HMAC signature: %s", signature)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid HMAC signature"})
 	}
 
 	var payload map[string]interface{}
-	if err := c.BodyParser(&payload); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON payload"})
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 	}
 
-	log.Printf("[Webhook] Received payload for channel %s (%s, company: %s)", channel.Name, channelType, channel.CompanyID)
+	log.Printf("[MetaWebhook] Received verified event from Narrow Meta App")
+	h.processMetaEvent(c.UserContext(), payload)
 
-	// Extract sender phone or email if present in payload to auto-create / link contact
-	senderPhone, senderName, senderEmail := extractSenderInfo(payload)
-	senderPhone = NormalizePhone(senderPhone)
+	return c.JSON(fiber.Map{"status": "received"})
+}
 
-	if senderPhone != "" || senderEmail != "" {
-		h.autoLinkContact(c.UserContext(), channel.CompanyID, senderName, senderPhone, senderEmail)
+// VerifyChannelMetaWebhook handles channel-specific verification
+func (h *Handler) VerifyChannelMetaWebhook(c *fiber.Ctx) error {
+	token := c.Query("hub.verify_token")
+	challenge := c.Query("hub.challenge")
+
+	if token != "" {
+		if h.metaClient.VerifyWebhookToken(token) {
+			return c.SendString(challenge)
+		}
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ready"})
+}
+
+// ReceiveChannelMetaWebhook handles channel-specific incoming events
+func (h *Handler) ReceiveChannelMetaWebhook(c *fiber.Ctx) error {
+	var payload map[string]interface{}
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
+	}
+	h.processMetaEvent(c.UserContext(), payload)
+	return c.JSON(fiber.Map{"status": "received"})
+}
+
+func (h *Handler) processMetaEvent(ctx context.Context, payload map[string]interface{}) {
+	phone, name, email := extractSenderInfo(payload)
+	phone = NormalizePhone(phone)
+	if phone == "" {
+		return
+	}
+
+	// Lookup all active companies or default to first active channel
+	var companyID uuid.UUID
+	err := h.db.GetContext(ctx, &companyID, `SELECT company_id FROM channels WHERE type = 'whatsapp_meta' AND status = 'active' LIMIT 1`)
+	if err == nil {
+		h.autoLinkContact(ctx, companyID, name, phone, email)
+	}
+}
+
+// ==========================================
+// WAHA (WHATSAPP HTTP API) HANDLERS
+// ==========================================
+
+// GetWAHAStatus checks if the remote WAHA server is reachable
+func (h *Handler) GetWAHAStatus(c *fiber.Ctx) error {
+	healthy, err := h.wahaClient.Health(c.UserContext())
+	if err != nil || !healthy {
+		return c.JSON(fiber.Map{
+			"status":   "disconnected",
+			"base_url": h.wahaClient.BaseURL(),
+			"error":    fmt.Sprintf("%v", err),
+		})
+	}
+	return c.JSON(fiber.Map{
+		"status":   "connected",
+		"base_url": h.wahaClient.BaseURL(),
+	})
+}
+
+// CreateWAHASession starts a session on WAHA and registers webhook
+func (h *Handler) CreateWAHASession(c *fiber.Ctx) error {
+	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
+	companyID, _ := uuid.Parse(companyIDStr)
+
+	var req struct {
+		SessionName string `json:"session_name"`
+		ChannelName string `json:"channel_name"`
+	}
+	if err := c.BodyParser(&req); err != nil || req.SessionName == "" {
+		req.SessionName = fmt.Sprintf("session_%s", companyID.String()[:8])
+	}
+	if req.ChannelName == "" {
+		req.ChannelName = fmt.Sprintf("WhatsApp WAHA (%s)", req.SessionName)
+	}
+
+	webhookURL := fmt.Sprintf("%s/webhooks/waha", c.BaseURL())
+	session, err := h.wahaClient.StartSession(c.UserContext(), req.SessionName, webhookURL)
+	if err != nil {
+		log.Printf("[WAHA] Error starting session: %v", err)
+	}
+
+	// Register channel in database
+	channelID := uuid.New()
+	cfgJSON, _ := json.Marshal(map[string]string{
+		"session_name": req.SessionName,
+		"waha_url":     h.wahaClient.BaseURL(),
+	})
+
+	query := `INSERT INTO channels (id, company_id, type, name, status, config_json) 
+		VALUES ($1, $2, 'whatsapp_qr', $3, 'active', $4) 
+		ON CONFLICT (id) DO NOTHING RETURNING id, name, type, status, config_json`
+
+	var newChannel models.Channel
+	_ = h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, req.ChannelName, string(cfgJSON))
+
+	return c.JSON(fiber.Map{
+		"session": session,
+		"channel": newChannel,
+		"status":  "session_initiated",
+	})
+}
+
+// GetWAHAQRCode retrieves the current live QR code from WAHA
+func (h *Handler) GetWAHAQRCode(c *fiber.Ctx) error {
+	sessionName := c.Params("session")
+	qr, err := h.wahaClient.GetQRCode(c.UserContext(), sessionName)
+	if err != nil {
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"status":  "waiting",
+			"message": err.Error(),
+		})
 	}
 
 	return c.JSON(fiber.Map{
-		"status":     "received",
-		"channel_id": channel.ID,
-		"company_id": channel.CompanyID,
+		"status": "ready",
+		"qr":     qr,
 	})
+}
+
+// GetWAHASessionStatus checks the session state on WAHA
+func (h *Handler) GetWAHASessionStatus(c *fiber.Ctx) error {
+	sessionName := c.Params("session")
+	session, err := h.wahaClient.GetSession(c.UserContext(), sessionName)
+	if err != nil {
+		return c.JSON(fiber.Map{"status": "UNKNOWN", "error": err.Error()})
+	}
+	return c.JSON(session)
+}
+
+// LogoutWAHASession disconnects the WAHA session
+func (h *Handler) LogoutWAHASession(c *fiber.Ctx) error {
+	sessionName := c.Params("session")
+	_ = h.wahaClient.LogoutSession(c.UserContext(), sessionName)
+	return c.JSON(fiber.Map{"status": "logged_out"})
+}
+
+// RestartWAHASession restarts the WAHA session
+func (h *Handler) RestartWAHASession(c *fiber.Ctx) error {
+	sessionName := c.Params("session")
+	webhookURL := fmt.Sprintf("%s/webhooks/waha", c.BaseURL())
+	session, err := h.wahaClient.StartSession(c.UserContext(), sessionName, webhookURL)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(session)
+}
+
+// ReceiveWAHAWebhook receives events sent by WAHA (messages, acks, session status)
+func (h *Handler) ReceiveWAHAWebhook(c *fiber.Ctx) error {
+	var payload map[string]interface{}
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
+	}
+
+	event, _ := payload["event"].(string)
+	session, _ := payload["session"].(string)
+	log.Printf("[WAHA Webhook] Received event '%s' for session '%s'", event, session)
+
+	// Extract message data
+	if event == "message" {
+		if data, ok := payload["payload"].(map[string]interface{}); ok {
+			from, _ := data["from"].(string)
+			body, _ := data["body"].(string)
+			fromNumber := strings.Split(from, "@")[0]
+			fromNumber = NormalizePhone(fromNumber)
+
+			if fromNumber != "" {
+				var companyID uuid.UUID
+				err := h.db.GetContext(c.UserContext(), &companyID, `SELECT company_id FROM channels WHERE type = 'whatsapp_qr' AND status = 'active' LIMIT 1`)
+				if err == nil {
+					h.autoLinkContact(c.UserContext(), companyID, fmt.Sprintf("WhatsApp %s", fromNumber), fromNumber, "")
+				}
+				_ = body
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{"status": "received"})
+}
+
+func (h *Handler) ReceiveGenericWebhook(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{"status": "received"})
 }
 
 func extractSenderInfo(payload map[string]interface{}) (phone, name, email string) {

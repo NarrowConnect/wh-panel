@@ -31,8 +31,10 @@ import (
 	"wh-panel/internal/templates"
 	"wh-panel/internal/tenant"
 	"wh-panel/internal/websocket"
+	"wh-panel/pkg/meta"
 	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/redis"
+	"wh-panel/pkg/waha"
 )
 
 func main() {
@@ -173,10 +175,34 @@ func main() {
 	// API Route Group v1
 	api := app.Group("/api/v1")
 
+	// Initialize Meta Graph API & Narrow App client
+	metaAppID := getEnv("META_APP_ID", "")
+	metaAppSecret := getEnv("META_APP_SECRET", "")
+	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "narrow_wh_verify_secret_2026")
+	metaAPIVersion := getEnv("META_API_VERSION", "v20.0")
+	metaAccessToken := getEnv("META_ACCESS_TOKEN", "")
+
+	metaClient := meta.NewClient(meta.Config{
+		AppID:       metaAppID,
+		AppSecret:   metaAppSecret,
+		VerifyToken: metaVerifyToken,
+		APIVersion:  metaAPIVersion,
+		AccessToken: metaAccessToken,
+	})
+
+	// Initialize WAHA (WhatsApp HTTP API) client
+	wahaBaseURL := getEnv("WAHA_BASE_URL", "http://localhost:3000")
+	wahaAPIKey := getEnv("WAHA_API_KEY", "")
+
+	wahaClient := waha.NewClient(waha.Config{
+		BaseURL: wahaBaseURL,
+		APIKey:  wahaAPIKey,
+	})
+
 	// Initialize Handlers & Services
 	authHandler := auth.NewHandler(db, jwtMgr)
 	tenantHandler := tenant.NewHandler(db, jwtMgr)
-	channelsHandler := channels.NewHandler(db, jwtSecret)
+	channelsHandler := channels.NewHandler(db, jwtSecret, metaClient, wahaClient)
 	contactsHandler := contacts.NewHandler(db)
 	conversationsHandler := conversations.NewHandler(db, redisClient, wsHub)
 	queuesService := queues.NewService(db, redisClient, wsHub)
@@ -214,6 +240,23 @@ func main() {
 	campaignsHandler.RegisterProtectedRoutes(protected)
 	reportsHandler.RegisterProtectedRoutes(protected)
 	billingHandler.RegisterProtectedRoutes(protected)
+
+	// Static Web SPA Serving (React Frontend)
+	if _, err := os.Stat("web/dist"); err == nil {
+		app.Static("/", "./web/dist")
+		app.Get("/*", func(c *fiber.Ctx) error {
+			path := c.Path()
+			if (len(path) >= 4 && path[:4] == "/api") ||
+				(len(path) >= 3 && path[:3] == "/ws") ||
+				(len(path) >= 5 && path[:5] == "/docs") ||
+				(len(path) >= 7 && path[:7] == "/health") ||
+				(len(path) >= 13 && path[:13] == "/swagger.json") ||
+				(len(path) >= 9 && path[:9] == "/webhooks") {
+				return c.Next()
+			}
+			return c.SendFile("./web/dist/index.html")
+		})
+	}
 
 	// Start Server asynchronously
 	go func() {

@@ -1,38 +1,48 @@
-# Stage 1: Build binary
-FROM golang:1.22-alpine AS builder
+# Stage 1: Build React Frontend SPA
+FROM node:20-alpine AS web-builder
+
+WORKDIR /app/web
+
+COPY web/package.json ./
+RUN npm install
+
+COPY web/ ./
+RUN npm run build
+
+# Stage 2: Build Go static binary
+FROM golang:1.22-alpine AS go-builder
 
 WORKDIR /app
 
-# Install ca-certificates and git
 RUN apk add --no-cache ca-certificates git
 
-# Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build static binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s" \
     -o /app/bin/wh-panel ./cmd/api
 
-# Stage 2: Final minimal image
+# Stage 3: Final minimal image for Easypanel
 FROM alpine:3.19
 
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates tzdata wget curl
 
-# Copy binary from builder
-COPY --from=builder /app/bin/wh-panel /app/wh-panel
+# Copy Go binary
+COPY --from=go-builder /app/bin/wh-panel /app/wh-panel
 
-# Copy migrations and docs
-COPY --from=builder /app/migrations /app/migrations
-COPY --from=builder /app/docs /app/docs
+# Copy migrations and API docs
+COPY --from=go-builder /app/migrations /app/migrations
+COPY --from=go-builder /app/docs /app/docs
 
-# Create required directories
+# Copy built React frontend SPA
+COPY --from=web-builder /app/web/dist /app/web/dist
+
+# Setup user and permissions
 RUN mkdir -p /app/uploads && \
     addgroup -S appgroup && \
     adduser -S appuser -G appgroup && \
