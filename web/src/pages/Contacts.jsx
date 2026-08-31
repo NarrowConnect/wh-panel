@@ -55,7 +55,8 @@ export const Contacts = () => {
   const fetchContacts = async () => {
     try {
       const data = await ApiClient.get('/contacts', { query: search });
-      setContacts(data && data.length > 0 ? data : defaultContacts);
+      const list = Array.isArray(data) ? data : (data?.contacts || []);
+      setContacts(list.length > 0 ? list : defaultContacts);
     } catch {
       setContacts(defaultContacts);
     } finally {

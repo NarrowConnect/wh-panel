@@ -62,7 +62,8 @@ export const Campaigns = () => {
   const fetchCampaigns = async () => {
     try {
       const data = await ApiClient.get('/campaigns');
-      setCampaigns(data && data.length > 0 ? data : defaultCampaigns);
+      const list = Array.isArray(data) ? data : (data?.campaigns || []);
+      setCampaigns(list.length > 0 ? list : defaultCampaigns);
     } catch {
       setCampaigns(defaultCampaigns);
     } finally {

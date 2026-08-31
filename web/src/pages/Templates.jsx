@@ -67,7 +67,8 @@ export const Templates = () => {
   const fetchTemplates = async () => {
     try {
       const data = await ApiClient.get('/templates');
-      setTemplates(data && data.length > 0 ? data : defaultTemplates);
+      const list = Array.isArray(data) ? data : (data?.templates || []);
+      setTemplates(list.length > 0 ? list : defaultTemplates);
     } catch {
       setTemplates(defaultTemplates);
     } finally {
@@ -95,7 +96,7 @@ export const Templates = () => {
     setName('');
   };
 
-  const filteredTemplates = templates.filter((t) => {
+  const filteredTemplates = (Array.isArray(templates) ? templates : []).filter((t) => {
     if (filterCategory === 'ALL') return true;
     return t.category === filterCategory;
   });

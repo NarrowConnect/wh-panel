@@ -47,7 +47,8 @@ export const Queues = () => {
   const fetchQueues = async () => {
     try {
       const data = await ApiClient.get('/queues');
-      setQueues(data && data.length > 0 ? data : defaultQueues);
+      const list = Array.isArray(data) ? data : (data?.queues || []);
+      setQueues(list.length > 0 ? list : defaultQueues);
     } catch {
       setQueues(defaultQueues);
     } finally {

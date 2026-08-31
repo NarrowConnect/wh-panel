@@ -79,8 +79,9 @@ export const Channels = () => {
         ApiClient.get('/channels/waha/status'),
       ]);
 
-      if (chanData.status === 'fulfilled' && chanData.value && chanData.value.length > 0) {
-        setChannels(chanData.value);
+      if (chanData.status === 'fulfilled' && chanData.value) {
+        const list = Array.isArray(chanData.value) ? chanData.value : (chanData.value?.channels || []);
+        setChannels(list.length > 0 ? list : defaultChannels);
       } else {
         setChannels(defaultChannels);
       }

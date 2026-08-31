@@ -28,10 +28,11 @@ export const CRM = ({ onOpenChat }) => {
   const fetchPipelines = async () => {
     try {
       const data = await ApiClient.get('/crm/pipelines');
-      if (data && data.length > 0) {
-        setPipelines(data);
-        setActivePipeline(data[0]);
-        loadPipelineStages(data[0].id);
+      const list = Array.isArray(data) ? data : (data?.pipelines || []);
+      if (list.length > 0) {
+        setPipelines(list);
+        setActivePipeline(list[0]);
+        loadPipelineStages(list[0].id);
       } else {
         // Fallback default demo pipeline if empty
         const defaultStages = [
@@ -58,9 +59,11 @@ export const CRM = ({ onOpenChat }) => {
   const loadPipelineStages = async (pipelineId) => {
     try {
       const stageData = await ApiClient.get(`/crm/pipelines/${pipelineId}/stages`);
-      setStages(stageData || []);
+      const stageList = Array.isArray(stageData) ? stageData : (stageData?.stages || []);
+      setStages(stageList);
       const cardData = await ApiClient.get(`/crm/pipelines/${pipelineId}/cards`);
-      setCards(cardData || []);
+      const cardList = Array.isArray(cardData) ? cardData : (cardData?.cards || []);
+      setCards(cardList);
     } catch (err) {
       console.error('[CRM] Error loading stages:', err);
     }
@@ -137,8 +140,8 @@ export const CRM = ({ onOpenChat }) => {
 
       {/* Kanban Board Container */}
       <div className="flex-1 flex gap-4 overflow-x-auto pb-4 items-start">
-        {stages.map((stage) => {
-          const stageCards = cards.filter((c) => String(c.stage_id) === String(stage.id));
+        {(Array.isArray(stages) ? stages : []).map((stage) => {
+          const stageCards = (Array.isArray(cards) ? cards : []).filter((c) => String(c.stage_id) === String(stage.id));
           const totalValue = stageCards.reduce((acc, c) => acc + (Number(c.value) || 0), 0);
 
           return (

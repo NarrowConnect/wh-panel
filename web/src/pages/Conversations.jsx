@@ -82,12 +82,14 @@ export const Conversations = () => {
       if (selectedChannel) params.channel_id = selectedChannel;
 
       const data = await ApiClient.get('/conversations', params);
-      setConversations(data || []);
-      if (!selectedConv && data && data.length > 0) {
-        selectConversation(data[0]);
+      const list = Array.isArray(data) ? data : (data?.conversations || []);
+      setConversations(list);
+      if (!selectedConv && list.length > 0) {
+        selectConversation(list[0]);
       }
     } catch (err) {
       console.error('[Conversations] Error fetching list:', err);
+      setConversations([]);
     } finally {
       setLoading(false);
     }
@@ -102,10 +104,12 @@ export const Conversations = () => {
         ApiClient.get(`/conversations/${conv.id}/messages`),
         conv.contact_id ? ApiClient.get(`/contacts/${conv.contact_id}`) : Promise.resolve(null),
       ]);
-      setMessages(msgs || []);
+      const msgList = Array.isArray(msgs) ? msgs : (msgs?.messages || []);
+      setMessages(msgList);
       setContact360(contactData);
     } catch (err) {
       console.error('[Conversations] Error fetching messages:', err);
+      setMessages([]);
     } finally {
       setMessagesLoading(false);
       setTimeout(scrollToBottom, 100);
@@ -116,7 +120,10 @@ export const Conversations = () => {
   useEffect(() => {
     fetchConversations();
     // Load approved templates for quick response
-    ApiClient.get('/templates').then((res) => setTemplates(res || [])).catch(() => {});
+    ApiClient.get('/templates').then((res) => {
+      const tmplList = Array.isArray(res) ? res : (res?.templates || []);
+      setTemplates(tmplList);
+    }).catch(() => {});
   }, [filterTab, selectedQueue, selectedChannel]);
 
   // WebSocket Subscription for Real-time incoming messages
@@ -214,7 +221,7 @@ export const Conversations = () => {
   };
 
   // Filtered list
-  const filteredConversations = conversations.filter((c) => {
+  const filteredConversations = (Array.isArray(conversations) ? conversations : []).filter((c) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
