@@ -60,7 +60,7 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 			if len(users) == 0 {
 				err = sql.ErrNoRows
 			} else if len(users) > 1 {
-				return c.Status(fiber.StatusAmbiguous).JSON(fiber.Map{
+				return c.Status(fiber.StatusMultipleChoices).JSON(fiber.Map{
 					"error": "Email registered in multiple companies. Please provide company_slug.",
 				})
 			} else {

@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -117,7 +118,7 @@ func (h *Hub) HandleWebSocketConnection(jwtMgr *auth.JWTManager) fiber.Handler {
 			return
 		}
 
-		claims, err := jwtMgr.ValidateToken(c.Context(), tokenStr)
+		claims, err := jwtMgr.ValidateToken(context.Background(), tokenStr)
 		if err != nil {
 			_ = c.WriteJSON(fiber.Map{"error": "Invalid token"})
 			c.Close()

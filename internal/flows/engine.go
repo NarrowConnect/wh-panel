@@ -171,7 +171,12 @@ func (e *Engine) processNode(ctx context.Context, exec models.FlowExecution, def
 		}
 
 		for _, edge := range def.Edges {
-			label, _ := edge.Data["label"].(string)
+			label := edge.Label
+			if label == "" && edge.Data != nil {
+				if l, ok := edge.Data["label"].(string); ok {
+					label = l
+				}
+			}
 			if edge.Source == node.ID && strings.EqualFold(label, targetLabel) {
 				for _, n := range def.Nodes {
 					if n.ID == edge.Target {

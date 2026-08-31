@@ -15,6 +15,7 @@ type Template struct {
 	Category       string     `json:"category" db:"category"` // MARKETING, UTILITY, AUTHENTICATION
 	Language       string     `json:"language" db:"language"` // pt_BR, en_US, es_ES
 	ComponentsJSON string     `json:"components_json" db:"components_json"`
+	Variables      []string   `json:"variables,omitempty" db:"-"`
 	Status         string     `json:"status" db:"status"`     // draft, pending, approved, rejected
 	MetaTemplateID *string    `json:"meta_template_id" db:"meta_template_id"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`

@@ -26,10 +26,11 @@ type FlowNode struct {
 }
 
 type FlowEdge struct {
-	ID     string `json:"id"`
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Label  string `json:"label,omitempty"`
+	ID     string                 `json:"id"`
+	Source string                 `json:"source"`
+	Target string                 `json:"target"`
+	Label  string                 `json:"label,omitempty"`
+	Data   map[string]interface{} `json:"data,omitempty"`
 }
 
 type FlowDefinition struct {

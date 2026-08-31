@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	goredis "github.com/redis/go-redis/v9"
 
 	"wh-panel/pkg/redis"
 )
@@ -62,7 +63,7 @@ func (d *Dispatcher) QueueCampaignTasks(ctx context.Context, companyID, campaign
 				RecipientID: recID,
 			})
 
-			_ = d.redisClient.Raw().XAdd(ctx, &redis.XAddArgs{
+			_ = d.redisClient.Raw().XAdd(ctx, &goredis.XAddArgs{
 				Stream: streamKey,
 				Values: map[string]interface{}{"payload": string(payload)},
 			}).Err()
@@ -118,7 +119,7 @@ func (d *Dispatcher) StartStreamWorker(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
-				entries, err := d.redisClient.Raw().XRead(ctx, &redis.XReadArgs{
+				entries, err := d.redisClient.Raw().XRead(ctx, &goredis.XReadArgs{
 					Streams: []string{streamKey, "0"},
 					Count:   10,
 					Block:   2 * time.Second,
