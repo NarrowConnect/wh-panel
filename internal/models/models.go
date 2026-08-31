@@ -50,6 +50,18 @@ type CreateCompanyRequest struct {
 	Password   string `json:"password" validate:"required,min=6"`
 }
 
+type RegisterRequest struct {
+	CompanyName string `json:"company_name"`
+	CompanySlug string `json:"company_slug"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	AdminName   string `json:"admin_name"`
+	Email       string `json:"email"`
+	AdminEmail  string `json:"admin_email"`
+	Password    string `json:"password"`
+	Plan        string `json:"plan"`
+}
+
 type CreateUserRequest struct {
 	Name     string `json:"name" validate:"required"`
 	Email    string `json:"email" validate:"required,email"`

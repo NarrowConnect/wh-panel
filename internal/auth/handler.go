@@ -27,6 +27,7 @@ func NewHandler(db *sqlx.DB, jwtMgr *JWTManager) *Handler {
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	authGroup := router.Group("/auth")
 	authGroup.Post("/login", h.Login)
+	authGroup.Post("/register", h.Register)
 	authGroup.Post("/refresh", h.RefreshToken)
 	authGroup.Post("/logout", h.Logout)
 }
@@ -161,3 +162,103 @@ func (h *Handler) GetMe(c *fiber.Ctx) error {
 		"company": company,
 	})
 }
+
+func (h *Handler) Register(c *fiber.Ctx) error {
+	var req models.RegisterRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
+	}
+
+	companyName := req.CompanyName
+	if companyName == "" {
+		companyName = req.Name
+	}
+	companySlug := req.CompanySlug
+	if companySlug == "" {
+		companySlug = req.Slug
+	}
+	adminName := req.AdminName
+	if adminName == "" {
+		adminName = req.Name
+	}
+	email := req.Email
+	if email == "" {
+		email = req.AdminEmail
+	}
+
+	if companyName == "" || companySlug == "" || email == "" || req.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Company name, slug, email, and password are required",
+		})
+	}
+
+	if adminName == "" {
+		adminName = "Administrador"
+	}
+
+	tx, err := h.db.Beginx()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to start database transaction"})
+	}
+	defer tx.Rollback()
+
+	// Check if company slug is already taken
+	var existingCount int
+	_ = tx.GetContext(c.UserContext(), &existingCount, `SELECT COUNT(*) FROM companies WHERE slug = $1`, companySlug)
+	if existingCount > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Company slug is already taken. Please choose another."})
+	}
+
+	// 1. Create Company
+	companyID := uuid.New()
+	plan := req.Plan
+	if plan == "" {
+		plan = "enterprise"
+	}
+
+	compQuery := `INSERT INTO companies (id, name, slug, plan, status) 
+		VALUES ($1, $2, $3, $4, 'active') 
+		RETURNING id, name, slug, plan, status, created_at, updated_at`
+
+	var company models.Company
+	err = tx.GetContext(c.UserContext(), &company, compQuery, companyID, companyName, companySlug, plan)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create company record"})
+	}
+
+	// 2. Hash Password and Create Admin User
+	hash, err := h.jwtMgr.HashPassword(req.Password)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to hash password"})
+	}
+
+	userID := uuid.New()
+	userQuery := `INSERT INTO users (id, company_id, name, email, password_hash, role, status) 
+		VALUES ($1, $2, $3, $4, $5, 'admin', 'active') 
+		RETURNING id, company_id, name, email, role, status, created_at, updated_at`
+
+	var user models.User
+	err = tx.GetContext(c.UserContext(), &user, userQuery, userID, companyID, adminName, email, hash)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create user record"})
+	}
+
+	if err := tx.Commit(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to commit transaction"})
+	}
+
+	// 3. Generate Tokens
+	accessToken, refreshToken, expiresIn, err := h.jwtMgr.GenerateTokens(user.ID, company.ID, user.Email, user.Role)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate authentication tokens"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(models.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    expiresIn,
+		User:         user,
+		Company:      company,
+	})
+}
+
