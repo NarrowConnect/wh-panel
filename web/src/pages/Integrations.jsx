@@ -160,7 +160,7 @@ function transform(payload) {
           </div>
 
           <div className="space-y-3">
-            {webhooks.map((hook) => (
+            {(Array.isArray(webhooks) ? webhooks : []).map((hook) => (
               <div
                 key={hook.id}
                 className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
@@ -198,7 +198,7 @@ function transform(payload) {
           </h3>
 
           <div className="space-y-3">
-            {apiKeys.map((k) => (
+            {(Array.isArray(apiKeys) ? apiKeys : []).map((k) => (
               <div
                 key={k.id}
                 className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"

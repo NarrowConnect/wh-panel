@@ -79,11 +79,20 @@ export const Dashboard = () => {
         ApiClient.get('/dashboard/funnel', params),
       ]);
 
-      if (kpiRes.status === 'fulfilled') setKpis(kpiRes.value);
-      if (chanRes.status === 'fulfilled') setChannels(chanRes.value || []);
-      if (attRes.status === 'fulfilled') setAttendants(attRes.value || []);
-      if (sentRes.status === 'fulfilled') setSentiment(sentRes.value);
-      if (funRes.status === 'fulfilled') setFunnel(funRes.value || []);
+      if (kpiRes.status === 'fulfilled') setKpis(kpiRes.value || {});
+      if (chanRes.status === 'fulfilled') {
+        const list = Array.isArray(chanRes.value) ? chanRes.value : (chanRes.value?.channels || []);
+        setChannels(list);
+      }
+      if (attRes.status === 'fulfilled') {
+        const list = Array.isArray(attRes.value) ? attRes.value : (attRes.value?.attendants || []);
+        setAttendants(list);
+      }
+      if (sentRes.status === 'fulfilled') setSentiment(sentRes.value || {});
+      if (funRes.status === 'fulfilled') {
+        const list = Array.isArray(funRes.value) ? funRes.value : (funRes.value?.funnel || []);
+        setFunnel(list);
+      }
     } catch (err) {
       console.error('[Dashboard] Error fetching metrics:', err);
     } finally {
@@ -255,7 +264,7 @@ export const Dashboard = () => {
           </div>
 
           <div className="space-y-3 pt-2">
-            {channels.length === 0 ? (
+            {!Array.isArray(channels) || channels.length === 0 ? (
               <div className="py-10 text-center text-slate-500 text-xs">
                 Nenhum atendimento registrado no filtro atual.
               </div>
@@ -344,7 +353,7 @@ export const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {attendants.length === 0 ? (
+                {!Array.isArray(attendants) || attendants.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-6 text-center text-slate-500">
                       Nenhum atendente registrado.
@@ -383,8 +392,8 @@ export const Dashboard = () => {
           </h3>
 
           <div className="space-y-3 pt-2">
-            {funnel.map((item, i) => {
-              const total = funnel.reduce((acc, f) => acc + (Number(f.count) || 0), 0) || 1;
+            {(Array.isArray(funnel) ? funnel : []).map((item, i) => {
+              const total = (Array.isArray(funnel) ? funnel : []).reduce((acc, f) => acc + (Number(f.count) || 0), 0) || 1;
               const pct = Math.round(((Number(item.count) || 0) / total) * 100);
 
               return (

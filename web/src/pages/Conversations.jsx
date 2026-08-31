@@ -483,7 +483,7 @@ export const Conversations = () => {
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {messagesLoading ? (
                 <div className="py-12 text-center text-slate-500 text-xs">Carregando histórico...</div>
-              ) : messages.length === 0 ? (
+              ) : !Array.isArray(messages) || messages.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-xs">
                   Nenhuma mensagem registrada nesta conversa ainda.
                 </div>
@@ -759,7 +759,7 @@ export const Conversations = () => {
             </div>
 
             <div className="max-h-72 overflow-y-auto space-y-2">
-              {templates.map((tmpl) => (
+              {(Array.isArray(templates) ? templates : []).map((tmpl) => (
                 <div
                   key={tmpl.id}
                   onClick={() => {

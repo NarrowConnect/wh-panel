@@ -208,7 +208,7 @@ export const CRM = ({ onOpenChat }) => {
                       {/* Quick Move Selector */}
                       <div className="pt-1 flex items-center gap-1 overflow-x-auto">
                         <span className="text-[10px] text-slate-500">Mover:</span>
-                        {stages.map((st) => (
+                        {(Array.isArray(stages) ? stages : []).map((st) => (
                           <button
                             key={st.id}
                             onClick={() => handleMoveCard(card.id, st.id)}

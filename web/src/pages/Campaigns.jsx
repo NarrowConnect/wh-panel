@@ -127,7 +127,7 @@ export const Campaigns = () => {
 
       {/* Campaigns Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {campaigns.map((camp) => {
+        {(Array.isArray(campaigns) ? campaigns : []).map((camp) => {
           const progress = Math.round(((camp.sent_count || 0) / (camp.total_recipients || 1)) * 100);
 
           return (

@@ -152,7 +152,7 @@ export const Queues = () => {
 
       {activeTab === 'queues' ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {queues.map((q) => (
+          {(Array.isArray(queues) ? queues : []).map((q) => (
             <div key={q.id} className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 space-y-4">
               <div className="flex items-start justify-between">
                 <h4 className="text-sm font-bold text-white">{q.name}</h4>
@@ -183,7 +183,7 @@ export const Queues = () => {
           </h3>
 
           <div className="space-y-3">
-            {rules.map((rule) => (
+            {(Array.isArray(rules) ? rules : []).map((rule) => (
               <div
                 key={rule.id}
                 className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
@@ -310,7 +310,7 @@ export const Queues = () => {
                   onChange={(e) => setRuleTargetQueue(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
                 >
-                  {queues.map((q) => (
+                  {(Array.isArray(queues) ? queues : []).map((q) => (
                     <option key={q.id} value={q.name}>{q.name}</option>
                   ))}
                 </select>

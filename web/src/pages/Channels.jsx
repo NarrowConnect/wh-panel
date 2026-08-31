@@ -265,7 +265,7 @@ export const Channels = () => {
 
       {/* Channels List Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {channels.map((chan) => {
+        {(Array.isArray(channels) ? channels : []).map((chan) => {
           const isMeta = chan.type === 'whatsapp_meta';
           const isQR = chan.type === 'whatsapp_qr';
           const isWebchat = chan.type === 'webchat';

@@ -202,7 +202,7 @@ export const Contacts = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {contacts.map((contact) => (
+                {(Array.isArray(contacts) ? contacts : []).map((contact) => (
                   <tr key={contact.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 font-bold text-white flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] text-brand-400 font-extrabold">
@@ -241,7 +241,7 @@ export const Contacts = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {customFields.map((field) => (
+            {(Array.isArray(customFields) ? customFields : []).map((field) => (
               <div key={field.id} className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-white">{field.name}</span>
@@ -343,7 +343,7 @@ export const Contacts = () => {
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
                 >
                   <option value="">Selecione o contato principal...</option>
-                  {contacts.map((c) => (
+                  {(Array.isArray(contacts) ? contacts : []).map((c) => (
                     <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
                   ))}
                 </select>
@@ -357,7 +357,7 @@ export const Contacts = () => {
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
                 >
                   <option value="">Selecione o contato a fundir...</option>
-                  {contacts.map((c) => (
+                  {(Array.isArray(contacts) ? contacts : []).map((c) => (
                     <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
                   ))}
                 </select>
