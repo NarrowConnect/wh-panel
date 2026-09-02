@@ -55,6 +55,7 @@ Desenvolvido para atender operações omnichannel de grande porte (estilo Chatwo
 │   └── swagger.json                # Especificação OpenAPI completa
 ├── Dockerfile                      # Build multi-stage minimalista (Alpine)
 ├── docker-compose.yml              # Ambiente completo (API + Postgres + Redis)
+├── GUIA_META_EMBEDDED_SIGNUP.md    # Guia passo a passo Meta Cloud API & Embedded Signup
 └── .env.example                    # Exemplo de variáveis de ambiente
 ```
 

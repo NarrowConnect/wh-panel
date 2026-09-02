@@ -62,6 +62,7 @@ func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 	channels.Get("/", h.ListChannels)
 	channels.Post("/", tenant.RequireRole("admin", "supervisor"), h.CreateChannel)
 	channels.Get("/meta/config", h.GetMetaAppConfig)
+	channels.Post("/meta/embedded-signup", tenant.RequireRole("admin", "supervisor"), h.HandleEmbeddedSignup)
 	channels.Get("/waha/status", h.GetWAHAStatus)
 	channels.Post("/waha/sessions", tenant.RequireRole("admin", "supervisor"), h.CreateWAHASession)
 	channels.Get("/waha/sessions/:session/qr", h.GetWAHAQRCode)
@@ -239,9 +240,73 @@ func (h *Handler) DeleteChannel(c *fiber.Ctx) error {
 func (h *Handler) GetMetaAppConfig(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"app_id":       h.metaClient.AppID(),
+		"config_id":    h.metaClient.ConfigID(),
 		"verify_token": h.metaClient.VerifyToken(),
 		"api_version":  h.metaClient.APIVersion(),
 		"webhook_url":  fmt.Sprintf("%s/webhooks/meta", c.BaseURL()),
+	})
+}
+
+// HandleEmbeddedSignup processes the OAuth authorization code returned by Meta Embedded Signup popup
+func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
+	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
+	companyID, _ := uuid.Parse(companyIDStr)
+
+	var req struct {
+		Code        string `json:"code"`
+		ChannelName string `json:"channel_name"`
+	}
+	if err := c.BodyParser(&req); err != nil || req.Code == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Authorization code is required"})
+	}
+
+	channelName := strings.TrimSpace(req.ChannelName)
+	if channelName == "" {
+		channelName = "WhatsApp Oficial Narrow"
+	}
+
+	// Exchange code on Meta Graph API
+	res, err := h.metaClient.ExchangeEmbeddedSignupCode(c.UserContext(), req.Code)
+	if err != nil {
+		log.Printf("[EmbeddedSignup] Error exchanging code: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("Meta authorization failed: %v", err)})
+	}
+
+	// Prepare credentials to encrypt
+	creds := map[string]string{
+		"access_token":    res.AccessToken,
+		"waba_id":         res.WabaID,
+		"phone_number_id": res.PhoneID,
+	}
+	credBytes, _ := json.Marshal(creds)
+	encCreds, _ := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+
+	// Prepare channel config
+	configMap := map[string]interface{}{
+		"phone_number":    res.PhoneNumber,
+		"waba_id":         res.WabaID,
+		"phone_number_id": res.PhoneID,
+		"quality_rating":  res.Quality,
+		"provider":        "meta_cloud_api",
+		"app_managed":     "narrow_connect",
+	}
+	configBytes, _ := json.Marshal(configMap)
+
+	channelID := uuid.New()
+	query := `INSERT INTO channels (id, company_id, type, name, status, credentials_encrypted, config_json) 
+		VALUES ($1, $2, 'whatsapp_meta', $3, 'active', $4, $5) 
+		RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
+
+	var newChannel models.Channel
+	err = h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, channelName, encCreds, string(configBytes))
+	if err != nil {
+		log.Printf("[EmbeddedSignup] Failed to insert channel: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save connected channel"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message": "WhatsApp Meta conectado com sucesso!",
+		"channel": newChannel,
 	})
 }
 

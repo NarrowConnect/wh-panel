@@ -61,9 +61,9 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  const login = async (email, password, companySlug) => {
-    const payload = { email, password };
-    if (companySlug) payload.company_slug = companySlug;
+  const login = async (email, password, companySlug, rememberMe = true) => {
+    const payload = { email: email.trim(), password };
+    if (companySlug) payload.company_slug = companySlug.trim();
 
     const data = await ApiClient.post('/auth/login', payload);
     ApiClient.setTokens(data.access_token, data.refresh_token);
@@ -71,15 +71,22 @@ export const AuthProvider = ({ children }) => {
     setCompany(data.company);
     localStorage.setItem('wh_user', JSON.stringify(data.user));
     localStorage.setItem('wh_company', JSON.stringify(data.company));
+
+    if (rememberMe) {
+      localStorage.setItem('wh_remembered_email', email.trim());
+      if (companySlug) {
+        localStorage.setItem('wh_remembered_slug', companySlug.trim());
+      }
+    }
     return data;
   };
 
   const register = async (companyName, companySlug, adminName, email, password) => {
     const payload = {
-      company_name: companyName,
-      company_slug: companySlug,
-      admin_name: adminName,
-      email,
+      company_name: companyName.trim(),
+      company_slug: companySlug.trim().toLowerCase(),
+      admin_name: adminName.trim(),
+      email: email.trim().toLowerCase(),
       password,
     };
 
@@ -89,6 +96,8 @@ export const AuthProvider = ({ children }) => {
     setCompany(data.company);
     localStorage.setItem('wh_user', JSON.stringify(data.user));
     localStorage.setItem('wh_company', JSON.stringify(data.company));
+    localStorage.setItem('wh_remembered_email', email.trim().toLowerCase());
+    localStorage.setItem('wh_remembered_slug', companySlug.trim().toLowerCase());
     return data;
   };
 

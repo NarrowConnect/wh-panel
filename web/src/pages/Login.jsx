@@ -4,9 +4,10 @@ import { useAuth } from '../context/AuthContext';
 
 export const Login = ({ onSwitchToRegister }) => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => localStorage.getItem('wh_remembered_email') || '');
   const [password, setPassword] = useState('');
-  const [companySlug, setCompanySlug] = useState('');
+  const [companySlug, setCompanySlug] = useState(() => localStorage.getItem('wh_remembered_slug') || '');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +16,7 @@ export const Login = ({ onSwitchToRegister }) => {
     setError('');
     setLoading(true);
     try {
-      await login(email, password, companySlug);
+      await login(email, password, companySlug, rememberMe);
     } catch (err) {
       setError(err.message || 'Erro ao realizar login. Verifique suas credenciais.');
     } finally {
@@ -102,6 +103,18 @@ export const Login = ({ onSwitchToRegister }) => {
                   className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-900 text-brand-500 focus:ring-brand-500 w-3.5 h-3.5"
+                />
+                <span>Lembrar meu e-mail</span>
+              </label>
             </div>
 
             <button

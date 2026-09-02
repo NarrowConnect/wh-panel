@@ -181,6 +181,7 @@ func main() {
 	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "narrow_wh_verify_secret_2026")
 	metaAPIVersion := getEnv("META_API_VERSION", "v20.0")
 	metaAccessToken := getEnv("META_ACCESS_TOKEN", "")
+	metaConfigID := getEnv("META_CONFIG_ID", "894644480139460")
 
 	metaClient := meta.NewClient(meta.Config{
 		AppID:       metaAppID,
@@ -188,6 +189,7 @@ func main() {
 		VerifyToken: metaVerifyToken,
 		APIVersion:  metaAPIVersion,
 		AccessToken: metaAccessToken,
+		ConfigID:    metaConfigID,
 	})
 
 	// Initialize WAHA (WhatsApp HTTP API) client

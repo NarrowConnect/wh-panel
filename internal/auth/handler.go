@@ -3,6 +3,7 @@ package auth
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -38,25 +39,28 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
 
-	if req.Email == "" || req.Password == "" {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	companySlug := strings.ToLower(strings.TrimSpace(req.CompanySlug))
+
+	if email == "" || req.Password == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Email and password are required"})
 	}
 
 	var user models.User
 	var err error
 
-	if req.CompanySlug != "" {
+	if companySlug != "" {
 		// Specific company login context
 		query := `SELECT u.id, u.company_id, u.name, u.email, u.password_hash, u.role, u.status, u.created_at, u.updated_at 
 			FROM users u 
 			JOIN companies c ON c.id = u.company_id 
-			WHERE u.email = $1 AND c.slug = $2 AND u.status = 'active'`
-		err = h.db.GetContext(c.UserContext(), &user, query, req.Email, req.CompanySlug)
+			WHERE LOWER(u.email) = $1 AND LOWER(c.slug) = $2 AND u.status = 'active'`
+		err = h.db.GetContext(c.UserContext(), &user, query, email, companySlug)
 	} else {
 		// Global lookup
 		var users []models.User
-		query := `SELECT id, company_id, name, email, password_hash, role, status, created_at, updated_at FROM users WHERE email = $1 AND status = 'active'`
-		err = h.db.SelectContext(c.UserContext(), &users, query, req.Email)
+		query := `SELECT id, company_id, name, email, password_hash, role, status, created_at, updated_at FROM users WHERE LOWER(email) = $1 AND status = 'active'`
+		err = h.db.SelectContext(c.UserContext(), &users, query, email)
 		if err == nil {
 			if len(users) == 0 {
 				err = sql.ErrNoRows
@@ -169,21 +173,21 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
 
-	companyName := req.CompanyName
+	companyName := strings.TrimSpace(req.CompanyName)
 	if companyName == "" {
-		companyName = req.Name
+		companyName = strings.TrimSpace(req.Name)
 	}
-	companySlug := req.CompanySlug
+	companySlug := strings.ToLower(strings.TrimSpace(req.CompanySlug))
 	if companySlug == "" {
-		companySlug = req.Slug
+		companySlug = strings.ToLower(strings.TrimSpace(req.Slug))
 	}
-	adminName := req.AdminName
+	adminName := strings.TrimSpace(req.AdminName)
 	if adminName == "" {
-		adminName = req.Name
+		adminName = strings.TrimSpace(req.Name)
 	}
-	email := req.Email
+	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if email == "" {
-		email = req.AdminEmail
+		email = strings.ToLower(strings.TrimSpace(req.AdminEmail))
 	}
 
 	if companyName == "" || companySlug == "" || email == "" || req.Password == "" {
@@ -204,7 +208,7 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 
 	// Check if company slug is already taken
 	var existingCount int
-	_ = tx.GetContext(c.UserContext(), &existingCount, `SELECT COUNT(*) FROM companies WHERE slug = $1`, companySlug)
+	_ = tx.GetContext(c.UserContext(), &existingCount, `SELECT COUNT(*) FROM companies WHERE LOWER(slug) = $1`, companySlug)
 	if existingCount > 0 {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Company slug is already taken. Please choose another."})
 	}

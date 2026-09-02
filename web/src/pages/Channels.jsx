@@ -33,9 +33,9 @@ export const Channels = () => {
   const [copiedId, setCopiedId] = useState(null);
 
   // Meta Official Form Fields (Narrow App)
-  const [wabaId, setWabaId] = useState('');
-  const [phoneNumberId, setPhoneNumberId] = useState('');
-  const [metaToken, setMetaToken] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [metaConnecting, setMetaConnecting] = useState(false);
+  const [metaConfig, setMetaConfig] = useState(null);
 
   // WAHA (WhatsApp Non-Official) State
   const [wahaStatus, setWahaStatus] = useState(null);
@@ -74,9 +74,10 @@ export const Channels = () => {
 
   const fetchChannels = async () => {
     try {
-      const [chanData, wahaRes] = await Promise.allSettled([
+      const [chanData, wahaRes, metaCfgRes] = await Promise.allSettled([
         ApiClient.get('/channels'),
         ApiClient.get('/channels/waha/status'),
+        ApiClient.get('/channels/meta/config'),
       ]);
 
       if (chanData.status === 'fulfilled' && chanData.value) {
@@ -89,6 +90,10 @@ export const Channels = () => {
       if (wahaRes.status === 'fulfilled') {
         setWahaStatus(wahaRes.value);
       }
+
+      if (metaCfgRes.status === 'fulfilled' && metaCfgRes.value) {
+        setMetaConfig(metaCfgRes.value);
+      }
     } catch {
       setChannels(defaultChannels);
     } finally {
@@ -98,10 +103,85 @@ export const Channels = () => {
 
   useEffect(() => {
     fetchChannels();
+
+    // Load Meta Facebook JavaScript SDK dynamically if not present
+    if (!window.FB && !document.getElementById('facebook-jssdk')) {
+      const script = document.createElement('script');
+      script.id = 'facebook-jssdk';
+      script.src = 'https://connect.facebook.net/pt_BR/sdk.js';
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      script.onload = () => {
+        if (window.FB && metaConfig?.app_id) {
+          window.FB.init({
+            appId: metaConfig.app_id,
+            autoLogAppEvents: true,
+            xfbml: true,
+            version: metaConfig.api_version || 'v20.0',
+          });
+        }
+      };
+      document.body.appendChild(script);
+    }
+
     return () => {
       if (qrPollIntervalRef.current) clearInterval(qrPollIntervalRef.current);
     };
-  }, []);
+  }, [metaConfig?.app_id]);
+
+  // Trigger Meta Official Embedded Signup Popup
+  const handleMetaEmbeddedSignup = () => {
+    const configId = metaConfig?.config_id || '894644480139460';
+    const appId = metaConfig?.app_id;
+
+    if (!window.FB) {
+      alert('Carregando conexão com a Meta... Por favor, tente novamente em alguns segundos.');
+      return;
+    }
+
+    if (appId) {
+      window.FB.init({
+        appId: appId,
+        autoLogAppEvents: true,
+        xfbml: true,
+        version: metaConfig?.api_version || 'v20.0',
+      });
+    }
+
+    setMetaConnecting(true);
+
+    window.FB.login(
+      async (response) => {
+        if (response.authResponse?.code) {
+          try {
+            await ApiClient.post('/channels/meta/embedded-signup', {
+              code: response.authResponse.code,
+              channel_name: channelName || 'WhatsApp Oficial Narrow',
+            });
+            setShowConnectModal(false);
+            setChannelName('');
+            fetchChannels();
+            alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
+          } catch (err) {
+            alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
+          }
+        } else {
+          console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
+        }
+        setMetaConnecting(false);
+      },
+      {
+        config_id: configId,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: {
+          feature: 'whatsapp_embedded_signup',
+          setup: {},
+        },
+      }
+    );
+  };
 
   // WAHA QR Code Polling Loop
   const startWahaQrScanner = async (sessionName) => {
@@ -158,16 +238,30 @@ export const Channels = () => {
     }
 
     try {
-      const newChan = {
-        id: `chan_${Date.now()}`,
+      const payload = {
         name: channelName || (channelType === 'whatsapp_meta' ? 'WhatsApp Meta Oficial (Narrow App)' : 'Webchat Widget'),
         type: channelType,
+        config: {
+          phone_number: phoneNumber,
+          app_managed: 'narrow_connect',
+        },
+      };
+
+      const res = await ApiClient.post('/channels', payload);
+      const createdChan = res || {
+        id: `chan_${Date.now()}`,
+        name: payload.name,
+        type: channelType,
         status: 'active',
+        phone_number: phoneNumber,
         created_at: 'Hoje',
       };
-      setChannels((prev) => [newChan, ...prev]);
+
+      setChannels((prev) => [createdChan, ...prev]);
       setShowConnectModal(false);
       setChannelName('');
+      setPhoneNumber('');
+      fetchChannels();
     } catch (err) {
       alert(err.message || 'Erro ao conectar canal');
     }
@@ -416,31 +510,59 @@ export const Channels = () => {
                 </div>
 
                 {channelType === 'whatsapp_meta' && (
-                  <div className="space-y-2.5">
-                    <div className="p-3 rounded-xl bg-blue-950/30 border border-blue-800/40 text-xs text-blue-300">
-                      ✓ A validação de Webhooks é realizada automaticamente pelo App Meta da Narrow configurado via .env.
+                  <div className="space-y-4">
+                    {/* Embedded Signup Fast Connect Banner */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-950/40 via-emerald-950/20 to-slate-900 border border-blue-800/40 space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-white">Conexão Automática Oficial Narrow</h4>
+                          <p className="text-[11px] text-slate-400">
+                            Cadastre seu número ou vincule sua conta do WhatsApp Business em poucos segundos
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleMetaEmbeddedSignup}
+                        disabled={metaConnecting}
+                        className="w-full py-2.5 px-4 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.98] text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                      >
+                        {metaConnecting ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Abrindo popup da Meta...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Radio className="w-4 h-4" />
+                            <span>Conectar WhatsApp com 1 Clique (Oficial Meta)</span>
+                          </>
+                        )}
+                      </button>
+
+                      <p className="text-[10px] text-slate-400 text-center">
+                        ✓ Sem configurações complexas: o App da Narrow Connect gerencia tokens, webhooks e entrega 24/7.
+                      </p>
+                    </div>
+
+                    <div className="relative flex py-1 items-center">
+                      <div className="flex-grow border-t border-slate-800"></div>
+                      <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">ou vincule por número</span>
+                      <div className="flex-grow border-t border-slate-800"></div>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Phone Number ID da Empresa</label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Número de WhatsApp (com DDD)</label>
                       <input
                         type="text"
-                        required
-                        placeholder="Ex: 104829104829104"
-                        value={phoneNumberId}
-                        onChange={(e) => setPhoneNumberId(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">WABA ID</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 294829482948294"
-                        value={wabaId}
-                        onChange={(e) => setWabaId(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono"
+                        placeholder="Ex: +55 11 99999-8888"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
                       />
                     </div>
                   </div>
