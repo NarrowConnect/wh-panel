@@ -183,31 +183,41 @@ export const Channels = () => {
 
     try {
       window.FB.login(
-        async (response) => {
-          if (response.authResponse?.code) {
-            try {
-              await ApiClient.post('/channels/meta/embedded-signup', {
-                code: response.authResponse.code,
-                channel_name: channelName || 'WhatsApp Oficial Narrow',
-                waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
-                phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
+        function (response) {
+          console.log('[Meta Embedded Signup] FB.login response:', response);
+
+          if (response && response.authResponse && response.authResponse.code) {
+            ApiClient.post('/channels/meta/embedded-signup', {
+              code: response.authResponse.code,
+              channel_name: channelName || 'WhatsApp Oficial Narrow',
+              waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
+              phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
+            })
+              .then(() => {
+                setShowConnectModal(false);
+                setChannelName('');
+                fetchChannels();
+                alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
+              })
+              .catch((err) => {
+                alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
+              })
+              .finally(() => {
+                setMetaConnecting(false);
               });
-              setShowConnectModal(false);
-              setChannelName('');
-              fetchChannels();
-              alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
-            } catch (err) {
-              alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
-            }
           } else {
             console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
+            if (response && response.error_message) {
+              alert(`Aviso da Meta: ${response.error_message}`);
+            }
+            setMetaConnecting(false);
           }
-          setMetaConnecting(false);
         },
         {
           config_id: configId,
           response_type: 'code',
           override_default_response_type: true,
+          auth_type: 'rerequest',
           extras: {
             feature: 'whatsapp_embedded_signup',
             sessionInfoVersion: '2',
