@@ -217,11 +217,9 @@ export const Channels = () => {
           config_id: configId,
           response_type: 'code',
           override_default_response_type: true,
-          auth_type: 'rerequest',
           extras: {
             feature: 'whatsapp_embedded_signup',
             sessionInfoVersion: '2',
-            setup: {},
           },
         }
       );
@@ -275,10 +273,14 @@ export const Channels = () => {
       // Start WAHA session
       const session = wahaSessionName || `session_${Math.random().toString(36).substring(2, 7)}`;
       try {
-        await ApiClient.post('/channels/waha/sessions', {
+        const res = await ApiClient.post('/channels/waha/sessions', {
           session_name: session,
           channel_name: channelName || `WhatsApp WAHA (${session})`,
         });
+        if (res && res.channel && res.channel.id) {
+          setChannels((prev) => [res.channel, ...prev.filter((c) => c.id !== res.channel.id)]);
+        }
+        fetchChannels();
         startWahaQrScanner(session);
       } catch (err) {
         alert(err.message || 'Erro ao iniciar sessão WAHA');

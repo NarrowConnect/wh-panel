@@ -439,19 +439,49 @@ func (h *Handler) CreateWAHASession(c *fiber.Ctx) error {
 		log.Printf("[WAHA] Error starting session: %v", err)
 	}
 
-	// Register channel in database
-	channelID := uuid.New()
-	cfgJSON, _ := json.Marshal(map[string]string{
+	// Prepare encrypted credentials & config
+	creds := map[string]string{
 		"session_name": req.SessionName,
 		"waha_url":     h.wahaClient.BaseURL(),
+	}
+	credBytes, _ := json.Marshal(creds)
+	encCreds, _ := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+
+	cfgJSON, _ := json.Marshal(map[string]interface{}{
+		"session_name": req.SessionName,
+		"waha_url":     h.wahaClient.BaseURL(),
+		"provider":     "waha",
 	})
 
-	query := `INSERT INTO channels (id, company_id, type, name, status, config_json) 
-		VALUES ($1, $2, 'whatsapp_qr', $3, 'active', $4) 
-		ON CONFLICT (id) DO NOTHING RETURNING id, name, type, status, config_json`
+	// Check if a channel with this session already exists for this tenant
+	var existingID uuid.UUID
+	checkQuery := `SELECT id FROM channels WHERE company_id = $1 AND type = 'whatsapp_qr' AND config_json->>'session_name' = $2 LIMIT 1`
+	err = h.db.GetContext(c.UserContext(), &existingID, checkQuery, companyID, req.SessionName)
 
 	var newChannel models.Channel
-	_ = h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, req.ChannelName, string(cfgJSON))
+	if err == nil && existingID != uuid.Nil {
+		updateQuery := `UPDATE channels SET 
+			name = $1, 
+			status = 'active', 
+			credentials_encrypted = $2, 
+			config_json = $3, 
+			updated_at = CURRENT_TIMESTAMP 
+			WHERE id = $4 AND company_id = $5 
+			RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
+		err = h.db.GetContext(c.UserContext(), &newChannel, updateQuery, req.ChannelName, encCreds, string(cfgJSON), existingID, companyID)
+		if err != nil {
+			log.Printf("[WAHA] Failed to update channel in DB: %v", err)
+		}
+	} else {
+		channelID := uuid.New()
+		insertQuery := `INSERT INTO channels (id, company_id, type, name, status, credentials_encrypted, config_json) 
+			VALUES ($1, $2, 'whatsapp_qr', $3, 'active', $4, $5) 
+			RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
+		err = h.db.GetContext(c.UserContext(), &newChannel, insertQuery, channelID, companyID, req.ChannelName, encCreds, string(cfgJSON))
+		if err != nil {
+			log.Printf("[WAHA] Failed to insert channel into DB: %v", err)
+		}
+	}
 
 	return c.JSON(fiber.Map{
 		"session": session,
@@ -484,6 +514,21 @@ func (h *Handler) GetWAHASessionStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return c.JSON(fiber.Map{"status": "UNKNOWN", "error": err.Error()})
 	}
+
+	// If session connected, extract phone number and update channel config in DB
+	if session != nil && session.Status == "WORKING" && session.Me != nil {
+		rawPhone := fmt.Sprintf("%v", session.Me["id"])
+		rawPhone = strings.Split(rawPhone, "@")[0]
+		rawPhone = strings.Split(rawPhone, ":")[0]
+		if rawPhone != "" && rawPhone != "<nil>" {
+			_ , _ = h.db.ExecContext(c.UserContext(), `UPDATE channels 
+				SET status = 'active', 
+				    config_json = jsonb_set(config_json, '{phone_number}', to_jsonb($1::text)), 
+				    updated_at = CURRENT_TIMESTAMP 
+				WHERE type = 'whatsapp_qr' AND config_json->>'session_name' = $2`, rawPhone, sessionName)
+		}
+	}
+
 	return c.JSON(session)
 }
 
