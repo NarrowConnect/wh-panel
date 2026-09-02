@@ -23,6 +23,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import ApiClient from '../api/client';
+import { QRCodeSVG } from 'qrcode.react';
 
 export const Channels = () => {
   const [channels, setChannels] = useState([]);
@@ -49,29 +50,6 @@ export const Channels = () => {
   const [webchatColor, setWebchatColor] = useState('#22c55e');
   const [webchatGreeting, setWebchatGreeting] = useState('Olá! Como podemos ajudar sua empresa hoje?');
 
-  const defaultChannels = [
-    {
-      id: 'chan_meta_1',
-      name: 'WhatsApp Meta Oficial (Narrow App)',
-      type: 'whatsapp_meta',
-      status: 'active',
-      phone_number: '+55 11 98888-0001',
-      quality_rating: 'GREEN (Alta Qualidade)',
-      daily_limit: '10.000 msgs/dia',
-      created_at: '2026-08-20',
-    },
-    {
-      id: 'chan_waha_2',
-      name: 'WhatsApp WAHA VPS (Sessão 01)',
-      type: 'whatsapp_qr',
-      status: 'active',
-      phone_number: '+55 11 97777-0002',
-      session_name: 'session_narrow_01',
-      battery_level: '95%',
-      created_at: '2026-08-22',
-    },
-  ];
-
   const fetchChannels = async () => {
     try {
       const [chanData, wahaRes, metaCfgRes] = await Promise.allSettled([
@@ -82,9 +60,9 @@ export const Channels = () => {
 
       if (chanData.status === 'fulfilled' && chanData.value) {
         const list = Array.isArray(chanData.value) ? chanData.value : (chanData.value?.channels || []);
-        setChannels(list.length > 0 ? list : defaultChannels);
+        setChannels(list);
       } else {
-        setChannels(defaultChannels);
+        setChannels([]);
       }
 
       if (wahaRes.status === 'fulfilled') {
@@ -95,39 +73,65 @@ export const Channels = () => {
         setMetaConfig(metaCfgRes.value);
       }
     } catch {
-      setChannels(defaultChannels);
+      setChannels([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Track whether FB SDK has been initialized
+  const fbInitializedRef = useRef(false);
+
+  // Initialize (or re-initialize) FB SDK when metaConfig becomes available
+  const initFbSdk = () => {
+    if (!window.FB) return;
+    const appId = metaConfig?.app_id;
+    if (!appId) {
+      console.warn('[Meta SDK] No META_APP_ID configured — Embedded Signup will not work. Set META_APP_ID in .env');
+      return;
+    }
+    window.FB.init({
+      appId,
+      autoLogAppEvents: true,
+      xfbml: false,
+      version: metaConfig?.api_version || 'v20.0',
+    });
+    fbInitializedRef.current = true;
+    console.log('[Meta SDK] FB.init() completed with appId:', appId);
   };
 
   useEffect(() => {
     fetchChannels();
 
     // Load Meta Facebook JavaScript SDK dynamically if not present
-    if (!window.FB && !document.getElementById('facebook-jssdk')) {
+    if (!document.getElementById('facebook-jssdk')) {
+      // fbAsyncInit is called by the FB SDK after it loads
+      window.fbAsyncInit = () => {
+        initFbSdk();
+      };
+
       const script = document.createElement('script');
       script.id = 'facebook-jssdk';
       script.src = 'https://connect.facebook.net/pt_BR/sdk.js';
       script.async = true;
       script.defer = true;
       script.crossOrigin = 'anonymous';
-      script.onload = () => {
-        if (window.FB && metaConfig?.app_id) {
-          window.FB.init({
-            appId: metaConfig.app_id,
-            autoLogAppEvents: true,
-            xfbml: true,
-            version: metaConfig.api_version || 'v20.0',
-          });
-        }
-      };
       document.body.appendChild(script);
+    } else if (window.FB && metaConfig?.app_id && !fbInitializedRef.current) {
+      // SDK already loaded but not yet initialized (metaConfig arrived late)
+      initFbSdk();
     }
 
     return () => {
       if (qrPollIntervalRef.current) clearInterval(qrPollIntervalRef.current);
     };
+  }, []);
+
+  // Re-init FB SDK when metaConfig changes (handles async /meta/config response)
+  useEffect(() => {
+    if (window.FB && metaConfig?.app_id && !fbInitializedRef.current) {
+      initFbSdk();
+    }
   }, [metaConfig?.app_id]);
 
   // Trigger Meta Official Embedded Signup Popup
@@ -136,51 +140,62 @@ export const Channels = () => {
     const appId = metaConfig?.app_id;
 
     if (!window.FB) {
-      alert('Carregando conexão com a Meta... Por favor, tente novamente em alguns segundos.');
+      alert('O SDK da Meta ainda está carregando. Aguarde alguns segundos e tente novamente.');
       return;
     }
 
-    if (appId) {
-      window.FB.init({
-        appId: appId,
-        autoLogAppEvents: true,
-        xfbml: true,
-        version: metaConfig?.api_version || 'v20.0',
-      });
+    if (!appId) {
+      alert('META_APP_ID não está configurado no servidor. Verifique o arquivo .env no backend.');
+      console.error('[Meta Embedded Signup] metaConfig:', metaConfig);
+      return;
+    }
+
+    // Ensure FB is initialized (idempotent — safe to call multiple times)
+    if (!fbInitializedRef.current) {
+      initFbSdk();
     }
 
     setMetaConnecting(true);
 
-    window.FB.login(
-      async (response) => {
-        if (response.authResponse?.code) {
-          try {
-            await ApiClient.post('/channels/meta/embedded-signup', {
-              code: response.authResponse.code,
-              channel_name: channelName || 'WhatsApp Oficial Narrow',
-            });
-            setShowConnectModal(false);
-            setChannelName('');
-            fetchChannels();
-            alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
-          } catch (err) {
-            alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
+    try {
+      window.FB.login(
+        async (response) => {
+          if (response.authResponse?.code) {
+            try {
+              await ApiClient.post('/channels/meta/embedded-signup', {
+                code: response.authResponse.code,
+                channel_name: channelName || 'WhatsApp Oficial Narrow',
+              });
+              setShowConnectModal(false);
+              setChannelName('');
+              fetchChannels();
+              alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
+            } catch (err) {
+              alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
+            }
+          } else {
+            console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
+            if (response.status === 'unknown') {
+              // User closed the popup
+            }
           }
-        } else {
-          console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
-        }
-        setMetaConnecting(false);
-      },
-      {
-        config_id: configId,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: {
-          feature: 'whatsapp_embedded_signup',
-          setup: {},
+          setMetaConnecting(false);
         },
-      }
-    );
+        {
+          config_id: configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: {
+            feature: 'whatsapp_embedded_signup',
+            setup: {},
+          },
+        }
+      );
+    } catch (err) {
+      console.error('[Meta Embedded Signup] FB.login() threw:', err);
+      alert('Erro ao abrir o popup da Meta. Verifique o console do navegador.');
+      setMetaConnecting(false);
+    }
   };
 
   // WAHA QR Code Polling Loop
@@ -294,34 +309,34 @@ export const Channels = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
-      {/* 3.3 Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-card p-4 rounded-2xl border border-slate-800">
+    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] bg-[#07080c] select-none">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-500/20">
             <Radio className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Canais de Atendimento & Conexões (Meta Narrow & WAHA)</span>
+            <h2 className="text-base font-bold text-white flex items-center gap-2 font-sans">
+              <span>Canais de Atendimento & Conexões Oficiais</span>
             </h2>
             <p className="text-xs text-slate-400">
-              WhatsApp Oficial Meta (App Narrow) e WhatsApp Não-Oficial via servidor WAHA dedicado
+              WhatsApp Oficial Meta (Narrow App) e WhatsApp VPS WAHA
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {/* WAHA Server Health Status Badge */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-            <span className={`w-2 h-2 rounded-full ${wahaStatus?.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-            <span className="text-slate-300 font-medium">Servidor WAHA:</span>
-            <span className="text-slate-400 font-mono text-[11px]">{wahaStatus?.status === 'connected' ? 'Online' : 'Conectado'}</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#12141c] border border-white/[0.06] text-xs">
+            <span className={`w-2 h-2 rounded-full ${wahaStatus?.status === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="text-slate-300 font-bold">Servidor:</span>
+            <span className="text-purple-400 font-mono text-[11px] font-bold">{wahaStatus?.status === 'connected' ? 'Online' : 'Conectado'}</span>
           </div>
 
           <button
             onClick={() => { setShowConnectModal(true); setScanningQr(false); }}
-            className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-95 text-white text-xs font-semibold shadow-lg shadow-brand-500/25 flex items-center gap-1.5 transition-all"
+            className="px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-purple-500/25 flex items-center gap-1.5 transition-all"
           >
             <Plus className="w-4 h-4" />
             <span>Conectar Canal</span>
@@ -358,8 +373,26 @@ export const Channels = () => {
       </div>
 
       {/* Channels List Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(Array.isArray(channels) ? channels : []).map((chan) => {
+      {channels.length === 0 && !loading ? (
+        <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+            <Radio className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-white">Nenhum canal conectado ainda</h4>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Conecte seu WhatsApp Oficial com 1 Clique através do App da Narrow Connect ou inicie uma sessão WAHA.
+          </p>
+          <button
+            onClick={() => { setShowConnectModal(true); setScanningQr(false); }}
+            className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Conectar Primeiro Canal</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(Array.isArray(channels) ? channels : []).map((chan) => {
           const isMeta = chan.type === 'whatsapp_meta';
           const isQR = chan.type === 'whatsapp_qr';
           const isWebchat = chan.type === 'webchat';
@@ -461,7 +494,8 @@ export const Channels = () => {
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* Connect Modal with WAHA Live QR Scanner */}
       {showConnectModal && (
@@ -616,14 +650,19 @@ export const Channels = () => {
                   </span>
                 </div>
 
-                <div className="w-48 h-48 bg-white rounded-2xl mx-auto p-3 flex items-center justify-center shadow-xl">
+                <div className="w-52 h-52 bg-white rounded-2xl mx-auto p-3 flex items-center justify-center shadow-xl">
                   {wahaQrCode ? (
                     wahaQrCode.startsWith('data:image') ? (
                       <img src={wahaQrCode} alt="WhatsApp QR Code" className="w-full h-full object-contain" />
                     ) : (
-                      <div className="text-center font-mono text-[9px] text-slate-800 break-all p-1">
-                        <QrCode className="w-36 h-36 mx-auto text-slate-950" />
-                      </div>
+                      <QRCodeSVG
+                        value={wahaQrCode}
+                        size={180}
+                        bgColor="#ffffff"
+                        fgColor="#000000"
+                        level="M"
+                        includeMargin={false}
+                      />
                     )
                   ) : (
                     <div className="flex flex-col items-center justify-center text-slate-400 gap-2">

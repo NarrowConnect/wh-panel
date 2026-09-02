@@ -34,43 +34,13 @@ export const Templates = () => {
   const [buttonText, setButtonText] = useState('Falar com Especialista');
   const [ctaUrl, setCtaUrl] = useState('https://minhaempresa.com/oferta');
 
-  const defaultTemplates = [
-    {
-      id: 'tmpl_1',
-      name: 'boas_vindas_vip',
-      category: 'MARKETING',
-      language: 'pt_BR',
-      status: 'approved',
-      components_json: 'Olá {{1}}! Obrigado por entrar em contato com nossa equipe. Como podemos ajudar hoje?',
-      created_at: '2026-08-20',
-    },
-    {
-      id: 'tmpl_2',
-      name: 'confirmacao_agendamento',
-      category: 'UTILITY',
-      language: 'pt_BR',
-      status: 'approved',
-      components_json: 'Sua reunião foi agendada para {{1}} às {{2}}. Clique no botão abaixo para confirmar presença.',
-      created_at: '2026-08-22',
-    },
-    {
-      id: 'tmpl_3',
-      name: 'codigo_autenticacao_2fa',
-      category: 'AUTHENTICATION',
-      language: 'pt_BR',
-      status: 'approved',
-      components_json: 'Seu código de verificação é {{1}}. Não compartilhe com ninguém por segurança.',
-      created_at: '2026-08-25',
-    },
-  ];
-
   const fetchTemplates = async () => {
     try {
       const data = await ApiClient.get('/templates');
       const list = Array.isArray(data) ? data : (data?.templates || []);
-      setTemplates(list.length > 0 ? list : defaultTemplates);
+      setTemplates(list);
     } catch {
-      setTemplates(defaultTemplates);
+      setTemplates([]);
     } finally {
       setLoading(false);
     }
@@ -151,8 +121,26 @@ export const Templates = () => {
       </div>
 
       {/* Templates Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredTemplates.map((tmpl) => (
+      {filteredTemplates.length === 0 && !loading ? (
+        <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+            <FileText className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-white">Nenhum template HSM cadastrado</h4>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Crie novos templates de mensagem para aprovação da Meta ou aguarde a sincronização automática via webhook.
+          </p>
+          <button
+            onClick={() => setShowBuilderModal(true)}
+            className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Criar Novo Template</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTemplates.map((tmpl) => (
           <div key={tmpl.id} className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 space-y-3 flex flex-col justify-between">
             <div className="space-y-2">
               <div className="flex items-start justify-between">
@@ -175,7 +163,8 @@ export const Templates = () => {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Template Builder Modal with WhatsApp Mockup */}
       {showBuilderModal && (

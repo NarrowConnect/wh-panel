@@ -33,82 +33,24 @@ export const Flows = () => {
   const [testLog, setTestLog] = useState([]);
   const [showTestModal, setShowTestModal] = useState(false);
 
-  // Default demo flow if empty
-  const defaultFlowData = {
-    id: 'flow_sdr_ia',
-    name: 'Triagem & SDR IA de Vendas com Formulário',
-    status: 'active',
-    definition: {
-      nodes: [
-        {
-          id: 'n1',
-          type: 'trigger',
-          title: 'Gatilho: Nova Mensagem',
-          data: { event: 'new_conversation', channel: 'all' },
-          position: { x: 50, y: 100 },
-        },
-        {
-          id: 'n2',
-          type: 'ai_agent',
-          title: 'Agente SDR: Qualificação & Formulário',
-          data: {
-            persona: 'Consultor Comercial Sênior',
-            instructions: 'Recepcione calorosamente o lead, identifique as dores e colete os dados do formulário de qualificação antes de prosseguir.',
-            fields_to_collect: [
-              { name: 'nome_empresa', label: 'Nome da Empresa', type: 'text', required: true },
-              { name: 'tamanho_equipe', label: 'Número de Atendentes', type: 'number', required: true },
-              { name: 'faturamento_estimado', label: 'Faturamento Mensal', type: 'select', options: ['Até R$ 20k', 'R$ 20k - R$ 100k', 'Acima de R$ 100k'], required: true },
-            ],
-            handoff_trigger: 'lead_qualificado_ou_solicita_humano',
-          },
-          position: { x: 380, y: 100 },
-        },
-        {
-          id: 'n3',
-          type: 'condition',
-          title: 'Filtro: Faturamento & Perfil',
-          data: {
-            field: 'faturamento_estimado',
-            operator: 'equals',
-            value: 'Acima de R$ 100k',
-          },
-          position: { x: 720, y: 100 },
-        },
-        {
-          id: 'n4',
-          type: 'transfer_queue',
-          title: 'Transbordo: Fila Comercial VIP',
-          data: { queue_id: 'comercial_vip', strategy: 'round_robin' },
-          position: { x: 1050, y: 50 },
-        },
-        {
-          id: 'n5',
-          type: 'transfer_queue',
-          title: 'Transbordo: Fila Suporte & Geral',
-          data: { queue_id: 'geral', strategy: 'round_robin' },
-          position: { x: 1050, y: 220 },
-        },
-      ],
-    },
-  };
-
   const fetchFlows = async () => {
     try {
       const data = await ApiClient.get('/flows');
-      if (data && data.length > 0) {
-        setFlows(data);
-        setSelectedFlow(data[0]);
-        setNodes(data[0].definition?.nodes || defaultFlowData.definition.nodes);
+      const list = Array.isArray(data) ? data : (data?.flows || []);
+      if (list.length > 0) {
+        setFlows(list);
+        setSelectedFlow(list[0]);
+        setNodes(list[0].definition?.nodes || []);
       } else {
-        setFlows([defaultFlowData]);
-        setSelectedFlow(defaultFlowData);
-        setNodes(defaultFlowData.definition.nodes);
+        setFlows([]);
+        setSelectedFlow(null);
+        setNodes([]);
       }
     } catch (err) {
-      console.warn('[Flows] Fallback to default template:', err);
-      setFlows([defaultFlowData]);
-      setSelectedFlow(defaultFlowData);
-      setNodes(defaultFlowData.definition.nodes);
+      console.error('[Flows] Error fetching flows:', err);
+      setFlows([]);
+      setSelectedFlow(null);
+      setNodes([]);
     }
   };
 

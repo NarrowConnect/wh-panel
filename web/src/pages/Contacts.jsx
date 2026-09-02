@@ -46,19 +46,13 @@ export const Contacts = () => {
   const [primaryContactId, setPrimaryContactId] = useState('');
   const [duplicateContactId, setDuplicateContactId] = useState('');
 
-  const defaultContacts = [
-    { id: '1', name: 'Carlos Mendes', phone: '+55 11 98888-7777', email: 'carlos@inovare.com', tags: ['VIP', 'WhatsApp'], custom_values: { doc_number: '123.456.789-00', revenue: 'R$ 120k' } },
-    { id: '2', name: 'Mariana Rocha', phone: '+55 21 99999-1234', email: 'mariana@tech.com', tags: ['Lead Qualificado'], custom_values: { doc_number: '987.654.321-11', revenue: 'R$ 45k' } },
-    { id: '3', name: 'Roberto Lima', phone: '+55 31 97777-5555', email: 'roberto@logistica.com', tags: ['Suporte N1'], custom_values: { doc_number: '456.789.123-22', revenue: 'R$ 30k' } },
-  ];
-
   const fetchContacts = async () => {
     try {
       const data = await ApiClient.get('/contacts', { query: search });
       const list = Array.isArray(data) ? data : (data?.contacts || []);
-      setContacts(list.length > 0 ? list : defaultContacts);
+      setContacts(list);
     } catch {
-      setContacts(defaultContacts);
+      setContacts([]);
     } finally {
       setLoading(false);
     }
@@ -70,19 +64,23 @@ export const Contacts = () => {
 
   const handleCreateContact = async (e) => {
     e.preventDefault();
-    const newC = {
-      id: `c_${Date.now()}`,
-      name,
-      phone,
-      email,
-      tags: ['Novo Lead'],
-      custom_values: {},
-    };
-    setContacts((prev) => [newC, ...prev]);
-    setShowAddModal(false);
-    setName('');
-    setPhone('');
-    setEmail('');
+    try {
+      const payload = {
+        name,
+        phone,
+        email,
+        tags: ['Novo Lead'],
+        custom_values: {},
+      };
+      await ApiClient.post('/contacts', payload);
+      setShowAddModal(false);
+      setName('');
+      setPhone('');
+      setEmail('');
+      fetchContacts();
+    } catch (err) {
+      alert(err.message || 'Erro ao criar contato');
+    }
   };
 
   const handleAddField = (e) => {

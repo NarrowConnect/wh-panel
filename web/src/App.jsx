@@ -44,8 +44,8 @@ const MainLayout = () => {
 
   const tabTitleMap = {
     dashboard: 'Dashboard & Métricas',
-    conversations: 'Conversas Omnichannel (Chatwoot)',
-    crm: 'CRM Funil de Vendas (Kommo)',
+    conversations: 'Conversas Omnichannel',
+    crm: 'CRM Funil de Vendas',
     flows: 'Flow Canvas & Agentes IA',
     channels: 'Canais Conectados',
     contacts: 'Gestão de Contatos',

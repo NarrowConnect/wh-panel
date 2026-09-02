@@ -34,23 +34,15 @@ export const CRM = ({ onOpenChat }) => {
         setActivePipeline(list[0]);
         loadPipelineStages(list[0].id);
       } else {
-        // Fallback default demo pipeline if empty
-        const defaultStages = [
-          { id: '1', name: 'Lead Novo', order: 1, color: 'border-blue-500' },
-          { id: '2', name: 'Qualificação IA', order: 2, color: 'border-purple-500' },
-          { id: '3', name: 'Proposta Enviada', order: 3, color: 'border-amber-500' },
-          { id: '4', name: 'Negociação', order: 4, color: 'border-emerald-500' },
-          { id: '5', name: 'Fechado / Ganho', order: 5, color: 'border-brand-500' },
-        ];
-        setStages(defaultStages);
-        setCards([
-          { id: 'c1', title: 'Contrato Anual Enterprise', stage_id: '1', value: 12000, contact_name: 'Carlos Mendes', contact_phone: '+55 11 98888-7777', updated_at: 'Há 10 min' },
-          { id: 'c2', title: 'Expansão 50 Atendentes', stage_id: '2', value: 4500, contact_name: 'Mariana Rocha', contact_phone: '+55 21 99999-1234', updated_at: 'Há 35 min' },
-          { id: 'c3', title: 'Migração API Meta Oficial', stage_id: '3', value: 2800, contact_name: 'Roberto Lima', contact_phone: '+55 31 97777-5555', updated_at: 'Há 2h' },
-        ]);
+        setPipelines([]);
+        setStages([]);
+        setCards([]);
       }
     } catch (err) {
       console.error('[CRM] Error fetching pipelines:', err);
+      setPipelines([]);
+      setStages([]);
+      setCards([]);
     } finally {
       setLoading(false);
     }
@@ -117,9 +109,6 @@ export const CRM = ({ onOpenChat }) => {
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <span>Funil de Vendas CRM</span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-medium">
-                Kommo Integration
-              </span>
             </h2>
             <p className="text-xs text-slate-400">
               Gerencie oportunidades diretamente conectadas às conversas do WhatsApp
@@ -139,8 +128,26 @@ export const CRM = ({ onOpenChat }) => {
       </div>
 
       {/* Kanban Board Container */}
-      <div className="flex-1 flex gap-4 overflow-x-auto pb-4 items-start">
-        {(Array.isArray(stages) ? stages : []).map((stage) => {
+      {stages.length === 0 && !loading ? (
+        <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3 my-auto">
+          <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+            <Kanban className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-white">Nenhum Pipeline ou Etapa no CRM</h4>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Crie sua primeira etapa do funil de vendas para gerenciar oportunidades e negócios qualificados pelos Agentes IA.
+          </p>
+          <button
+            onClick={() => setShowAddDealModal(true)}
+            className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Criar Nova Oportunidade</span>
+          </button>
+        </div>
+      ) : (
+        <div className="flex-1 flex gap-4 overflow-x-auto pb-4 items-start">
+          {(Array.isArray(stages) ? stages : []).map((stage) => {
           const stageCards = (Array.isArray(cards) ? cards : []).filter((c) => String(c.stage_id) === String(stage.id));
           const totalValue = stageCards.reduce((acc, c) => acc + (Number(c.value) || 0), 0);
 
@@ -212,11 +219,10 @@ export const CRM = ({ onOpenChat }) => {
                           <button
                             key={st.id}
                             onClick={() => handleMoveCard(card.id, st.id)}
-                            className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
-                              String(card.stage_id) === String(st.id)
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${String(card.stage_id) === String(st.id)
                                 ? 'bg-brand-500 text-white'
                                 : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                            }`}
+                              }`}
                           >
                             {st.name.slice(0, 4)}
                           </button>
@@ -229,7 +235,8 @@ export const CRM = ({ onOpenChat }) => {
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* New Deal Modal */}
       {showAddDealModal && (

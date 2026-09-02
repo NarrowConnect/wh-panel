@@ -18,7 +18,13 @@ import {
   Sliders,
   Layers,
   Tag,
-  ChevronDown
+  ChevronDown,
+  Zap,
+  ShieldAlert,
+  Play,
+  Share2,
+  ExternalLink,
+  Plus
 } from 'lucide-react';
 import ApiClient from '../api/client';
 
@@ -28,55 +34,20 @@ export const Dashboard = () => {
   const [attendants, setAttendants] = useState([]);
   const [sentiment, setSentiment] = useState(null);
   const [funnel, setFunnel] = useState([]);
-  const [periodPreset, setPeriodPreset] = useState('7d'); // 'today', 'yesterday', '7d', '30d', 'custom'
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedChannelFilter, setSelectedChannelFilter] = useState('all');
-  const [selectedQueueFilter, setSelectedQueueFilter] = useState('all');
+  const [periodPreset, setPeriodPreset] = useState('24h');
+  const [timelineMonth, setTimelineMonth] = useState(1);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
-
-  const applyPreset = (preset) => {
-    setPeriodPreset(preset);
-    const now = new Date();
-    const formatDate = (d) => d.toISOString().split('T')[0];
-
-    if (preset === 'today') {
-      setStartDate(formatDate(now));
-      setEndDate(formatDate(now));
-    } else if (preset === 'yesterday') {
-      const y = new Date(now);
-      y.setDate(y.getDate() - 1);
-      setStartDate(formatDate(y));
-      setEndDate(formatDate(y));
-    } else if (preset === '7d') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 7);
-      setStartDate(formatDate(d));
-      setEndDate(formatDate(now));
-    } else if (preset === '30d') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      setStartDate(formatDate(d));
-      setEndDate(formatDate(now));
-    }
-  };
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
-      if (selectedChannelFilter !== 'all') params.channel_id = selectedChannelFilter;
-      if (selectedQueueFilter !== 'all') params.queue_id = selectedQueueFilter;
-
       const [kpiRes, chanRes, attRes, sentRes, funRes] = await Promise.allSettled([
-        ApiClient.get('/dashboard/kpis', params),
-        ApiClient.get('/dashboard/channels-volume', params),
-        ApiClient.get('/dashboard/attendants-performance', params),
-        ApiClient.get('/dashboard/sentiment-analysis', params),
-        ApiClient.get('/dashboard/funnel', params),
+        ApiClient.get('/dashboard/kpis'),
+        ApiClient.get('/dashboard/channels-volume'),
+        ApiClient.get('/dashboard/attendants-performance'),
+        ApiClient.get('/dashboard/sentiment-analysis'),
+        ApiClient.get('/dashboard/funnel'),
       ]);
 
       if (kpiRes.status === 'fulfilled') setKpis(kpiRes.value || {});
@@ -102,316 +73,360 @@ export const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, [startDate, endDate, selectedChannelFilter, selectedQueueFilter]);
+  }, []);
 
-  // Auto-refresh interval (15s)
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(fetchDashboardData, 15000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, startDate, endDate, selectedChannelFilter, selectedQueueFilter]);
+  const totalConversations = kpis?.total_conversations || 0;
+  const openConversations = kpis?.open_conversations || 0;
+  const resolvedConversations = kpis?.resolved_conversations || 0;
+  const resolutionRate = totalConversations > 0 ? ((resolvedConversations / totalConversations) * 100).toFixed(1) : '0.0';
+  const avgFirstResp = kpis?.avg_first_response_minutes ? `${kpis.avg_first_response_minutes.toFixed(1)} min` : '-';
+  const avgResMins = kpis?.avg_resolution_minutes ? `${kpis.avg_resolution_minutes.toFixed(1)} min` : '-';
+  const sentimentScore = kpis?.overall_sentiment_score ? Number(kpis.overall_sentiment_score).toFixed(2) : '0.00';
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
-      {/* 3.1 Control Bar: Presets, Date Range, Channel & Queue Filters */}
-      <div className="glass-card p-4 rounded-2xl border border-slate-800 space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] bg-[#07080c] select-none">
+      {/* 1. Header & Filters Section (Stakent Style) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 mb-1">
+            <span>Métricas em tempo real</span>
+            <Clock className="w-3.5 h-3.5 text-purple-400" />
+            <span className="px-2 py-0.5 rounded-full bg-[#141620] border border-white/[0.06] text-[10px] text-slate-300 font-bold">
+              {channels.length} {channels.length === 1 ? 'Canal Ativo' : 'Canais Ativos'}
+            </span>
+          </div>
+          <h2 className="text-2xl font-black text-white tracking-tight font-sans">
+            Desempenho & Ativos Omnichannel
+          </h2>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-[#12141c] p-1 rounded-full border border-white/[0.06]">
+            {['24h', '7d', '30d'].map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriodPreset(p)}
+                className={`px-3 py-1 text-xs font-bold rounded-full transition-all ${
+                  periodPreset === p
+                    ? 'bg-[#202434] text-white shadow-sm border border-white/[0.08]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {p.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => fetchDashboardData()}
+            className="p-2 rounded-full bg-[#12141c] hover:bg-[#181b26] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
+            title="Atualizar Métricas"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-400' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Top Metric Cards & Liquid IA Engine Banner (Stakent Style 3+1 Layout) */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Card 1: Total de Conversas */}
+        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/20">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Volume</p>
+                <p className="text-xs font-bold text-white">Total de Conversas</p>
+              </div>
+            </div>
+            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </span>
+          </div>
+
           <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Painel Executivo & Métricas Omnichannel (3.1)</span>
-              <span className={`w-2.5 h-2.5 rounded-full ${autoRefresh ? 'bg-brand-500 animate-pulse' : 'bg-slate-500'}`} />
-            </h2>
-            <p className="text-xs text-slate-400">
-              Controle visual em tempo real de conversas, TMPR, TMR, satisfação e canais
+            <p className="text-[11px] text-slate-400 font-medium">Conversas no Período</p>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className="text-2xl font-black text-white tracking-tight">{totalConversations}</span>
+              <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {openConversations} abertas
+              </span>
+            </div>
+          </div>
+
+          <div className="relative pt-2">
+            <div className="w-full bg-[#181a26] h-1.5 rounded-full overflow-hidden">
+              <div
+                className="bg-emerald-400 h-full rounded-full transition-all duration-500"
+                style={{ width: totalConversations > 0 ? `${Math.min(100, (resolvedConversations / totalConversations) * 100)}%` : '0%' }}
+              />
+            </div>
+            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
+              <span>{resolvedConversations} resolvidas</span>
+              <span>{resolutionRate}% taxa</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Tempo Médio de 1ª Resposta */}
+        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center font-bold text-xs border border-purple-500/20">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Agilidade</p>
+                <p className="text-xs font-bold text-white">TMPR (1ª Resposta)</p>
+              </div>
+            </div>
+            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </span>
+          </div>
+
+          <div>
+            <p className="text-[11px] text-slate-400 font-medium">Média de Espera do Cliente</p>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className="text-2xl font-black text-white tracking-tight">{avgFirstResp}</span>
+              <span className="text-[11px] font-bold text-purple-400 flex items-center gap-0.5">
+                TMR: {avgResMins}
+              </span>
+            </div>
+          </div>
+
+          <div className="relative pt-2">
+            <div className="w-full bg-[#181a26] h-1.5 rounded-full overflow-hidden">
+              <div className="bg-purple-500 h-full rounded-full w-[70%]" />
+            </div>
+            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
+              <span>Resolução: {avgResMins}</span>
+              <span>Meta: &lt; 2 min</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Satisfação & Sentimento */}
+        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center font-bold text-xs border border-amber-500/20">
+                <Smile className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qualidade</p>
+                <p className="text-xs font-bold text-white">Sentimento do Cliente</p>
+              </div>
+            </div>
+            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </span>
+          </div>
+
+          <div>
+            <p className="text-[11px] text-slate-400 font-medium">Score Médio</p>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className="text-2xl font-black text-white tracking-tight">{sentimentScore}</span>
+              <span className="text-[11px] font-bold text-emerald-400">
+                {sentiment?.positive_count || 0} positivos
+              </span>
+            </div>
+          </div>
+
+          <div className="relative pt-2">
+            <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-[#181a26]">
+              <div className="bg-emerald-400 h-full" style={{ width: `${(sentiment?.positive_count || 1) * 20}%` }} />
+              <div className="bg-amber-400 h-full" style={{ width: `${(sentiment?.neutral_count || 0) * 20}%` }} />
+              <div className="bg-rose-500 h-full" style={{ width: `${(sentiment?.negative_count || 0) * 20}%` }} />
+            </div>
+            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
+              <span>Positivos: {sentiment?.positive_count || 0}</span>
+              <span>Críticos: {sentiment?.negative_count || 0}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4: Liquid IA Engine Banner (Stakent Right Box) */}
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-[#1b1435] via-[#111022] to-[#0c0d14] border border-purple-500/25 shadow-2xl shadow-purple-500/10 flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-extrabold text-sm text-white flex items-center gap-1">
+                Narrow<span className="text-purple-400">®</span>
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Oficial Meta
+              </span>
+            </div>
+            <h3 className="text-base font-black text-white leading-tight font-sans">
+              Automação & Atendimento
+            </h3>
+            <p className="text-xs text-slate-300/80 leading-relaxed">
+              Integração completa com WhatsApp Cloud API oficial da Narrow Connect, WAHA VPS e CRM.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Period Presets */}
-            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
-              {[
-                { id: 'today', label: 'Hoje' },
-                { id: 'yesterday', label: 'Ontem' },
-                { id: '7d', label: '7 Dias' },
-                { id: '30d', label: '30 Dias' },
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => applyPreset(p.id)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
-                    periodPreset === p.id
-                      ? 'bg-brand-500 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Custom Date Inputs */}
-            <div className="flex items-center gap-1.5 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 text-xs text-slate-300">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => { setStartDate(e.target.value); setPeriodPreset('custom'); }}
-                className="bg-transparent text-xs text-white focus:outline-none"
-              />
-              <span className="text-slate-500">-</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => { setEndDate(e.target.value); setPeriodPreset('custom'); }}
-                className="bg-transparent text-xs text-white focus:outline-none"
-              />
-            </div>
-
-            {/* Auto-Refresh Toggle */}
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`p-2 rounded-xl border transition-colors ${
-                autoRefresh
-                  ? 'bg-brand-500/15 border-brand-500/30 text-brand-400'
-                  : 'bg-slate-900 border-slate-800 text-slate-400'
-              }`}
-              title={autoRefresh ? 'Atualização Automática Ativa (15s)' : 'Atualização Manual'}
+          <div className="space-y-2">
+            <a
+              href="/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-1.5"
             >
-              <RefreshCw className={`w-4 h-4 ${autoRefresh ? 'animate-spin-slow' : ''}`} />
-            </button>
+              <Zap className="w-4 h-4 fill-white" />
+              <span>Swagger API Docs</span>
+            </a>
           </div>
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Conversations */}
-        <div className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total de Atendimentos</span>
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4" />
+      {/* 3. Main Wide Analytics Box */}
+      <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+              <span>Status dos Canais Conectados</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${channels.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+            </div>
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-black text-white tracking-tight font-sans flex items-center gap-2">
+                <span>Operação Multi-Tenant Ativa</span>
+              </h3>
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-white">{kpis?.total_conversations ?? 0}</span>
-            <span className="text-[11px] font-semibold text-brand-400 flex items-center">
-              <ArrowUpRight className="w-3 h-3" /> Ao vivo
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">Registrados na base de dados</p>
         </div>
 
-        {/* In Attendance / Open & Pending */}
-        <div className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Em Atendimento</span>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+        {/* Big Numbers */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          <div className="lg:col-span-6 space-y-3">
+            <p className="text-xs text-slate-400 font-semibold">Total de Mensagens no Banco</p>
+            <div className="flex items-baseline gap-3">
+              <span className="text-4xl sm:text-5xl font-black text-white tracking-tight font-sans">
+                {totalConversations}
+              </span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                {channels.length} canais
+              </span>
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-amber-400">{kpis?.open_conversations ?? 0}</span>
-            <span className="text-xs text-slate-400 font-medium">abertas / {kpis?.pending_conversations ?? 0} pendentes</span>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">Filas ativas e triagem IA</p>
-        </div>
 
-        {/* TMPR (First Response Time) */}
-        <div className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">TMPR (1ª Resposta)</span>
-            <div className="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-purple-300">
-              {Number(kpis?.avg_first_response_minutes ?? 0).toFixed(1)}
-              <span className="text-sm font-normal text-slate-400 ml-1">min</span>
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">Tempo médio até primeiro contato</p>
-        </div>
-
-        {/* Sentiment & CSAT Score */}
-        <div className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Índice Sentimento (IA)</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
-              <Smile className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-400">
-              {Number(kpis?.overall_sentiment_score ?? 0).toFixed(2)}
-            </span>
-            <span className="text-xs text-slate-400 font-medium">/ 1.00</span>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">Classificação semântica em tempo real</p>
-        </div>
-      </div>
-
-      {/* Middle Grid: Channels Breakdown & Sentiment Gauge */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Radio className="w-4 h-4 text-brand-400" />
-              <span>Volume de Atendimentos por Canal</span>
-            </h3>
-            <span className="text-xs text-slate-400">WhatsApp / Instagram / Webchat</span>
-          </div>
-
-          <div className="space-y-3 pt-2">
-            {!Array.isArray(channels) || channels.length === 0 ? (
-              <div className="py-10 text-center text-slate-500 text-xs">
-                Nenhum atendimento registrado no filtro atual.
+          <div className="lg:col-span-6 p-4 rounded-2xl bg-[#12141c] border border-white/[0.06] space-y-3">
+            <p className="text-xs font-bold text-white">Distribuição por Canal Real</p>
+            {channels.length > 0 ? (
+              <div className="space-y-2">
+                {channels.map((ch) => (
+                  <div key={ch.channel_id || ch.id} className="flex justify-between items-center text-xs">
+                    <span className="text-slate-300 font-medium">{ch.channel_name || ch.name}</span>
+                    <span className="font-mono text-purple-400 font-bold">{ch.total_count || 0} conversas</span>
+                  </div>
+                ))}
               </div>
             ) : (
-              channels.map((chan, idx) => {
-                const total = channels.reduce((acc, c) => acc + (Number(c.total_count) || 0), 0) || 1;
-                const percentage = Math.round(((Number(chan.total_count) || 0) / total) * 100);
-
-                return (
-                  <div key={idx} className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span className="text-slate-200">{chan.channel_name} ({chan.channel_type})</span>
-                      <span className="text-slate-400">{chan.total_count} conversas ({percentage}%)</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden p-0.5">
-                      <div
-                        className="h-full bg-gradient-to-r from-brand-500 to-emerald-400 rounded-full transition-all duration-500"
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
+              <p className="text-xs text-slate-500">Nenhuma conversa registrada nos canais ainda.</p>
             )}
           </div>
         </div>
 
-        {/* Sentiment Analysis Card */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-4 flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
-              <Bot className="w-4 h-4 text-purple-400" />
-              <span>Satisfação & Sentimento</span>
-            </h3>
-
-            <div className="space-y-2.5">
-              <div className="p-3 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-brand-500" />
-                  <span className="text-xs font-semibold text-brand-300">Positivo</span>
-                </div>
-                <span className="text-sm font-bold text-brand-400">{sentiment?.positive_count ?? 0} msgs</span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-                  <span className="text-xs font-semibold text-slate-300">Neutro</span>
-                </div>
-                <span className="text-sm font-bold text-slate-300">{sentiment?.neutral_count ?? 0} msgs</span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                  <span className="text-xs font-semibold text-rose-300">Negativo</span>
-                </div>
-                <span className="text-sm font-bold text-rose-400">{sentiment?.negative_count ?? 0} msgs</span>
-              </div>
-            </div>
+        {/* 4 Bottom Metric Columns */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t border-white/[0.06]">
+          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abertas</p>
+            <p className="text-sm font-black text-white">{openConversations}</p>
+            <p className="text-[10px] text-slate-500">Aguardando atendimento</p>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
-            Score Médio: <strong className="text-white">{Number(sentiment?.avg_score ?? 0).toFixed(2)}</strong>
+          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Resolvidas</p>
+            <p className="text-sm font-black text-white">{resolvedConversations}</p>
+            <p className="text-[10px] text-slate-500">Encerradas com sucesso</p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Taxa de Resolução</p>
+            <p className="text-sm font-black text-white">{resolutionRate}%</p>
+            <p className="text-[10px] text-slate-500">Eficiência geral</p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TMPR</p>
+            <p className="text-sm font-black text-white">{avgFirstResp}</p>
+            <p className="text-[10px] text-slate-500">Primeira resposta</p>
           </div>
         </div>
       </div>
 
-      {/* Bottom Grid: Attendant Performance & Funnel */}
+      {/* 4. Bottom Grid: Atendentes & Funil de Conversas Reais */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Attendant Performance Leaderboard */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Users className="w-4 h-4 text-blue-400" />
-            <span>Ranking & Desempenho dos Atendentes</span>
-          </h3>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold">
-                  <th className="pb-2">Operador</th>
-                  <th className="pb-2 text-center">Atribuídas</th>
-                  <th className="pb-2 text-center">Resolvidas</th>
-                  <th className="pb-2 text-right">TMPR</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {!Array.isArray(attendants) || attendants.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-6 text-center text-slate-500">
-                      Nenhum atendente registrado.
-                    </td>
-                  </tr>
-                ) : (
-                  attendants.map((att, i) => (
-                    <tr key={i} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2.5 font-medium text-white flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] text-brand-400 font-bold">
-                          {att.user_name?.charAt(0) || 'A'}
-                        </div>
-                        <div className="truncate max-w-[130px]">
-                          <p className="truncate text-xs">{att.user_name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{att.user_email}</p>
-                        </div>
-                      </td>
-                      <td className="py-2.5 text-center text-slate-300 font-semibold">{att.assigned_count}</td>
-                      <td className="py-2.5 text-center text-emerald-400 font-semibold">{att.resolved_count}</td>
-                      <td className="py-2.5 text-right text-slate-400 font-mono">
-                        {Number(att.avg_first_response_mins || 0).toFixed(1)}m
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+        {/* Atendentes Performance Real */}
+        <div className="p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-400" />
+              <span>Desempenho dos Atendentes</span>
+            </h4>
+            <span className="text-[10px] font-bold text-slate-400">Dados do Sistema</span>
           </div>
-        </div>
 
-        {/* Funnel of Status */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            <span>Funil de Conversão & Atendimentos</span>
-          </h3>
-
-          <div className="space-y-3 pt-2">
-            {(Array.isArray(funnel) ? funnel : []).map((item, i) => {
-              const total = (Array.isArray(funnel) ? funnel : []).reduce((acc, f) => acc + (Number(f.count) || 0), 0) || 1;
-              const pct = Math.round(((Number(item.count) || 0) / total) * 100);
-
-              return (
-                <div key={i} className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-slate-300 capitalize">{item.status}</span>
-                    <span className="text-slate-400">{item.count} ({pct}%)</span>
+          {attendants.length > 0 ? (
+            <div className="space-y-2">
+              {attendants.map((att) => (
+                <div key={att.user_id} className="p-3 rounded-2xl bg-[#12141c] border border-white/[0.04] flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-300 font-bold text-xs flex items-center justify-center">
+                      {(att.user_name || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-white leading-none">{att.user_name}</p>
+                      <p className="text-[10px] text-slate-500 mt-1">{att.assigned_count} conversas atribuídas</p>
+                    </div>
                   </div>
-                  <div className="w-full h-3 bg-slate-900 rounded-full overflow-hidden p-0.5">
-                    <div
-                      className="h-full bg-gradient-to-r from-brand-500 to-emerald-400 rounded-full transition-all duration-500"
-                      style={{ width: `${pct}%` }}
-                    />
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-purple-400">{att.resolved_count} resolvidas</span>
+                    <p className="text-[10px] text-slate-500">{att.avg_first_response_mins ? `${att.avg_first_response_mins.toFixed(1)}m resp.` : '-'}</p>
                   </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 text-center py-4">Nenhum atendimento atribuído registrado ainda.</p>
+          )}
+        </div>
+
+        {/* Funil de Status Real */}
+        <div className="p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <span>Funil de Status das Conversas</span>
+            </h4>
+            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              {totalConversations} Total
+            </span>
           </div>
+
+          {funnel.length > 0 ? (
+            <div className="space-y-2.5">
+              {funnel.map((st, i) => {
+                const pct = totalConversations > 0 ? Math.round((st.count / totalConversations) * 100) : 0;
+                return (
+                  <div key={i} className="p-3 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-bold text-white capitalize">{st.status}</span>
+                      <span className="font-mono text-slate-400">{st.count} conversas ({pct}%)</span>
+                    </div>
+                    <div className="w-full bg-[#181a26] h-2 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-emerald-400" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 text-center py-4">Nenhum dado de funil registrado no momento.</p>
+          )}
         </div>
       </div>
     </div>

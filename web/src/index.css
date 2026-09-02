@@ -3,14 +3,20 @@
 @tailwind utilities;
 
 @layer base {
+  body {
+    font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #07080c;
+    color: #f1f5f9;
+  }
+
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
 
   ::-webkit-scrollbar-track {
@@ -18,33 +24,74 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.25);
+    background: rgba(255, 255, 255, 0.12);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.4);
+    background: rgba(255, 255, 255, 0.25);
   }
 }
 
 @layer utilities {
+  .stakent-card {
+    background-color: #0e1017;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 1.25rem;
+  }
+
+  .stakent-card-hover {
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stakent-card-hover:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+    background-color: #121520;
+    transform: translateY(-1px);
+  }
+
+  .stakent-card-highlight {
+    background: linear-gradient(135deg, #181432 0%, #10101f 60%, #0c0d14 100%);
+    border: 1px solid rgba(168, 85, 247, 0.22);
+    box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.15);
+  }
+
   .glass-card {
-    background: rgba(15, 23, 42, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: rgba(14, 16, 23, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .pill-button-primary {
+    background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 20px -2px rgba(168, 85, 247, 0.35);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .pill-button-primary:hover {
+    background: linear-gradient(135deg, #c084fc 0%, #8b5cf6 100%);
+    box-shadow: 0 6px 24px -2px rgba(168, 85, 247, 0.45);
+    transform: scale(1.01);
+  }
+
+  .pill-button-dark {
+    background: #141620;
     border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+    transition: all 0.2s ease;
+  }
+  .pill-button-dark:hover {
+    background: #1c1f2e;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
   }
 
-  .glass-card-hover {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .glass-card-hover:hover {
-    border-color: rgba(34, 197, 94, 0.3);
-    box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.1);
+  .glow-purple {
+    box-shadow: 0 0 35px -5px rgba(168, 85, 247, 0.25);
   }
 
-  .glow-brand {
-    box-shadow: 0 0 20px -3px rgba(34, 197, 94, 0.35);
+  .glow-emerald {
+    box-shadow: 0 0 35px -5px rgba(16, 185, 129, 0.25);
   }
 
   .whisper-bg {
@@ -55,17 +102,17 @@
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pulseGlow {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
 
 .animate-pulse-slow {

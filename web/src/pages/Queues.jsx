@@ -38,19 +38,13 @@ export const Queues = () => {
   const [ruleCondition, setRuleCondition] = useState('');
   const [ruleTargetQueue, setRuleTargetQueue] = useState('');
 
-  const defaultQueues = [
-    { id: 'q1', name: 'Comercial & Vendas', strategy: 'round_robin', attendants_count: 5, active_conversations: 12, max_load: 10 },
-    { id: 'q2', name: 'Suporte Técnico N1', strategy: 'less_busy', attendants_count: 8, active_conversations: 19, max_load: 8 },
-    { id: 'q3', name: 'Financeiro & Cobrança', strategy: 'manual', attendants_count: 3, active_conversations: 4, max_load: 5 },
-  ];
-
   const fetchQueues = async () => {
     try {
       const data = await ApiClient.get('/queues');
       const list = Array.isArray(data) ? data : (data?.queues || []);
-      setQueues(list.length > 0 ? list : defaultQueues);
+      setQueues(list);
     } catch {
-      setQueues(defaultQueues);
+      setQueues([]);
     } finally {
       setLoading(false);
     }
@@ -60,19 +54,21 @@ export const Queues = () => {
     fetchQueues();
   }, []);
 
-  const handleCreateQueue = (e) => {
+  const handleCreateQueue = async (e) => {
     e.preventDefault();
-    const newQ = {
-      id: `q_${Date.now()}`,
-      name,
-      strategy,
-      attendants_count: 1,
-      active_conversations: 0,
-      max_load: 8,
-    };
-    setQueues((prev) => [...prev, newQ]);
-    setShowModal(false);
-    setName('');
+    try {
+      const payload = {
+        name,
+        strategy,
+        max_load: 8,
+      };
+      await ApiClient.post('/queues', payload);
+      setShowModal(false);
+      setName('');
+      fetchQueues();
+    } catch (err) {
+      alert(err.message || 'Erro ao criar fila');
+    }
   };
 
   const handleCreateRule = (e) => {
@@ -151,8 +147,26 @@ export const Queues = () => {
       </div>
 
       {activeTab === 'queues' ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {(Array.isArray(queues) ? queues : []).map((q) => (
+        queues.length === 0 && !loading ? (
+          <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+              <Layers className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-bold text-white">Nenhuma fila de atendimento configurada</h4>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Crie departamentos como Comercial, Suporte ou Financeiro e defina a estratégia de distribuição dos atendentes.
+            </p>
+            <button
+              onClick={() => setShowModal(true)}
+              className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Criar Primeira Fila</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(Array.isArray(queues) ? queues : []).map((q) => (
             <div key={q.id} className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 space-y-4">
               <div className="flex items-start justify-between">
                 <h4 className="text-sm font-bold text-white">{q.name}</h4>
@@ -173,7 +187,8 @@ export const Queues = () => {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        )
       ) : (
         /* Pre-Triage Rules List (3.7) */
         <div className="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">

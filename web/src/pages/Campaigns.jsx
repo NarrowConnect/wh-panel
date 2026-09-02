@@ -32,40 +32,13 @@ export const Campaigns = () => {
   const [templateName, setTemplateName] = useState('oferta_exclusiva_vip');
   const [rateLimit, setRateLimit] = useState(60);
 
-  const defaultCampaigns = [
-    {
-      id: 'camp_1',
-      name: 'Black Friday 2026 - Reativação Base',
-      status: 'completed',
-      total_recipients: 1500,
-      sent_count: 1492,
-      delivered_count: 1470,
-      read_count: 1205,
-      rate_limit: 60,
-      channel: 'WhatsApp Meta Oficial',
-      created_at: '2026-08-28',
-    },
-    {
-      id: 'camp_2',
-      name: 'Lançamento Módulo IA SDR',
-      status: 'processing',
-      total_recipients: 800,
-      sent_count: 420,
-      delivered_count: 405,
-      read_count: 310,
-      rate_limit: 45,
-      channel: 'WhatsApp Meta Oficial',
-      created_at: '2026-08-30',
-    },
-  ];
-
   const fetchCampaigns = async () => {
     try {
       const data = await ApiClient.get('/campaigns');
       const list = Array.isArray(data) ? data : (data?.campaigns || []);
-      setCampaigns(list.length > 0 ? list : defaultCampaigns);
+      setCampaigns(list);
     } catch {
-      setCampaigns(defaultCampaigns);
+      setCampaigns([]);
     } finally {
       setLoading(false);
     }
@@ -75,24 +48,25 @@ export const Campaigns = () => {
     fetchCampaigns();
   }, []);
 
-  const handleFinishWizard = (e) => {
+  const handleFinishWizard = async (e) => {
     e.preventDefault();
-    const newC = {
-      id: `c_${Date.now()}`,
-      name: campName,
-      status: 'processing',
-      total_recipients: audienceType === 'tags' ? 350 : 800,
-      sent_count: 10,
-      delivered_count: 8,
-      read_count: 2,
-      rate_limit: rateLimit,
-      channel: targetChannel === 'whatsapp_meta' ? 'WhatsApp Meta Oficial' : 'WhatsApp QR Code',
-      created_at: 'Agora',
-    };
-    setCampaigns((prev) => [newC, ...prev]);
-    setShowWizardModal(false);
-    setWizardStep(1);
-    setCampName('');
+    try {
+      const payload = {
+        name: campName,
+        channel_type: targetChannel,
+        template_name: templateName,
+        rate_limit: rateLimit,
+        audience_type: audienceType,
+        tag: selectedTag,
+      };
+      await ApiClient.post('/campaigns', payload);
+      setShowWizardModal(false);
+      setWizardStep(1);
+      setCampName('');
+      fetchCampaigns();
+    } catch (err) {
+      alert(err.message || 'Erro ao disparar campanha');
+    }
   };
 
   return (
@@ -126,8 +100,26 @@ export const Campaigns = () => {
       </div>
 
       {/* Campaigns Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {(Array.isArray(campaigns) ? campaigns : []).map((camp) => {
+      {campaigns.length === 0 && !loading ? (
+        <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+            <Megaphone className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-white">Nenhuma campanha de disparo realizada</h4>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Dispare mensagens oficiais para sua base de clientes com templates aprovados pela Meta ou via WAHA.
+          </p>
+          <button
+            onClick={() => setShowWizardModal(true)}
+            className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Criar Nova Campanha</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(Array.isArray(campaigns) ? campaigns : []).map((camp) => {
           const progress = Math.round(((camp.sent_count || 0) / (camp.total_recipients || 1)) * 100);
 
           return (
@@ -180,7 +172,8 @@ export const Campaigns = () => {
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* 4-Step Campaign Wizard Modal */}
       {showWizardModal && (
