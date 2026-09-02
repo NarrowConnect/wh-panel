@@ -3,6 +3,7 @@ package waha
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,6 +53,8 @@ type QRCodeResponse struct {
 	Raw    string `json:"raw,omitempty"`
 	QRCode string `json:"qr,omitempty"`
 	Data   string `json:"data,omitempty"`
+	Image  string `json:"image,omitempty"`
+	Value  string `json:"value,omitempty"`
 }
 
 func (c *Client) request(ctx context.Context, method, endpoint string, body interface{}) ([]byte, int, error) {
@@ -180,28 +183,51 @@ func (c *Client) GetSession(ctx context.Context, sessionName string) (*SessionIn
 	return &session, nil
 }
 
+// normalizeQRCode ensures images are properly data-URI formatted
+func normalizeQRCode(val string, rawBytes []byte) string {
+	if bytes.HasPrefix(rawBytes, []byte("\x89PNG")) || bytes.HasPrefix(rawBytes, []byte("GIF8")) || bytes.HasPrefix(rawBytes, []byte("\xff\xd8\xff")) {
+		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(rawBytes)
+	}
+	trimmed := strings.Trim(val, "\" \r\n\t")
+	if strings.HasPrefix(trimmed, "data:image/") || strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		return trimmed
+	}
+	if strings.HasPrefix(trimmed, "iVBORw0KGgo") || strings.HasPrefix(trimmed, "/9j/") {
+		return "data:image/png;base64," + trimmed
+	}
+	return trimmed
+}
+
 // GetQRCode fetches the QR code string or image payload for authentication
 func (c *Client) GetQRCode(ctx context.Context, sessionName string) (string, error) {
 	// 1. Try GET /api/{session}/auth/qr
 	endpoint := fmt.Sprintf("/api/%s/auth/qr", sessionName)
 	respBytes, code, err := c.request(ctx, "GET", endpoint, nil)
 	if err == nil && code == http.StatusOK {
+		if bytes.HasPrefix(respBytes, []byte("\x89PNG")) {
+			return normalizeQRCode("", respBytes), nil
+		}
 		var qrResp QRCodeResponse
 		if err := json.Unmarshal(respBytes, &qrResp); err == nil {
+			if qrResp.Data != "" {
+				return normalizeQRCode(qrResp.Data, nil), nil
+			}
+			if qrResp.Image != "" {
+				return normalizeQRCode(qrResp.Image, nil), nil
+			}
 			if qrResp.QRCode != "" {
-				return qrResp.QRCode, nil
+				return normalizeQRCode(qrResp.QRCode, nil), nil
+			}
+			if qrResp.Value != "" {
+				return normalizeQRCode(qrResp.Value, nil), nil
 			}
 			if qrResp.Raw != "" {
-				return qrResp.Raw, nil
-			}
-			if qrResp.Data != "" {
-				return qrResp.Data, nil
+				return normalizeQRCode(qrResp.Raw, nil), nil
 			}
 		}
-		// If returned raw string or SVG/data URL
 		raw := string(respBytes)
-		if strings.HasPrefix(raw, "data:image") || len(raw) > 10 {
-			return strings.Trim(raw, "\""), nil
+		if len(raw) > 10 {
+			return normalizeQRCode(raw, nil), nil
 		}
 	}
 
@@ -209,16 +235,28 @@ func (c *Client) GetQRCode(ctx context.Context, sessionName string) (string, err
 	endpoint = fmt.Sprintf("/api/sessions/%s/auth/qr", sessionName)
 	respBytes, code, err = c.request(ctx, "GET", endpoint, nil)
 	if err == nil && code == http.StatusOK {
+		if bytes.HasPrefix(respBytes, []byte("\x89PNG")) {
+			return normalizeQRCode("", respBytes), nil
+		}
 		var qrResp QRCodeResponse
 		if err := json.Unmarshal(respBytes, &qrResp); err == nil {
+			if qrResp.Data != "" {
+				return normalizeQRCode(qrResp.Data, nil), nil
+			}
+			if qrResp.Image != "" {
+				return normalizeQRCode(qrResp.Image, nil), nil
+			}
 			if qrResp.QRCode != "" {
-				return qrResp.QRCode, nil
+				return normalizeQRCode(qrResp.QRCode, nil), nil
+			}
+			if qrResp.Value != "" {
+				return normalizeQRCode(qrResp.Value, nil), nil
 			}
 			if qrResp.Raw != "" {
-				return qrResp.Raw, nil
+				return normalizeQRCode(qrResp.Raw, nil), nil
 			}
 		}
-		return strings.Trim(string(respBytes), "\""), nil
+		return normalizeQRCode(string(respBytes), nil), nil
 	}
 
 	return "", fmt.Errorf("qr code not available yet (session might be starting or already connected)")

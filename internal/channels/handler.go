@@ -253,8 +253,10 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 	companyID, _ := uuid.Parse(companyIDStr)
 
 	var req struct {
-		Code        string `json:"code"`
-		ChannelName string `json:"channel_name"`
+		Code          string `json:"code"`
+		ChannelName   string `json:"channel_name"`
+		WabaID        string `json:"waba_id"`
+		PhoneNumberID string `json:"phone_number_id"`
 	}
 	if err := c.BodyParser(&req); err != nil || req.Code == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Authorization code is required"})
@@ -270,6 +272,14 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 	if err != nil {
 		log.Printf("[EmbeddedSignup] Error exchanging code: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("Meta authorization failed: %v", err)})
+	}
+
+	// Fallback to frontend session data if token inspection didn't resolve WABA/Phone ID
+	if res.WabaID == "" && req.WabaID != "" {
+		res.WabaID = req.WabaID
+	}
+	if res.PhoneID == "" && req.PhoneNumberID != "" {
+		res.PhoneID = req.PhoneNumberID
 	}
 
 	// Prepare credentials to encrypt

@@ -79,22 +79,49 @@ export const Channels = () => {
     }
   };
 
-  // Track whether FB SDK has been initialized
+  // Use a ref to always have latest metaConfig in callbacks (avoids stale closure in fbAsyncInit)
+  const metaConfigRef = useRef(metaConfig);
   const fbInitializedRef = useRef(false);
+  const metaEmbeddedDataRef = useRef({ waba_id: '', phone_number_id: '' });
 
-  // Initialize (or re-initialize) FB SDK when metaConfig becomes available
-  const initFbSdk = () => {
+  useEffect(() => {
+    metaConfigRef.current = metaConfig;
+  }, [metaConfig]);
+
+  // Listen for Meta Embedded Signup postMessage events
+  useEffect(() => {
+    const handleMetaMessage = (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data && (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'FINISH')) {
+          if (data.data) {
+            metaEmbeddedDataRef.current = {
+              waba_id: data.data.waba_id || '',
+              phone_number_id: data.data.phone_number_id || '',
+            };
+          }
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handleMetaMessage);
+    return () => window.removeEventListener('message', handleMetaMessage);
+  }, []);
+
+  // Initialize FB SDK — reads from ref to avoid stale closure
+  const initFbSdk = (cfg) => {
     if (!window.FB) return;
-    const appId = metaConfig?.app_id;
+    const config = cfg || metaConfigRef.current;
+    const appId = config?.app_id;
     if (!appId) {
-      console.warn('[Meta SDK] No META_APP_ID configured — Embedded Signup will not work. Set META_APP_ID in .env');
+      console.log('[Meta SDK] Aguardando META_APP_ID do servidor...');
       return;
     }
+    if (fbInitializedRef.current) return; // Already initialized
     window.FB.init({
       appId,
       autoLogAppEvents: true,
       xfbml: false,
-      version: metaConfig?.api_version || 'v20.0',
+      version: config?.api_version || 'v20.0',
     });
     fbInitializedRef.current = true;
     console.log('[Meta SDK] FB.init() completed with appId:', appId);
@@ -103,10 +130,10 @@ export const Channels = () => {
   useEffect(() => {
     fetchChannels();
 
-    // Load Meta Facebook JavaScript SDK dynamically if not present
+    // Load Meta Facebook JavaScript SDK
     if (!document.getElementById('facebook-jssdk')) {
-      // fbAsyncInit is called by the FB SDK after it loads
       window.fbAsyncInit = () => {
+        // Uses ref — always gets latest metaConfig
         initFbSdk();
       };
 
@@ -117,9 +144,6 @@ export const Channels = () => {
       script.defer = true;
       script.crossOrigin = 'anonymous';
       document.body.appendChild(script);
-    } else if (window.FB && metaConfig?.app_id && !fbInitializedRef.current) {
-      // SDK already loaded but not yet initialized (metaConfig arrived late)
-      initFbSdk();
     }
 
     return () => {
@@ -127,10 +151,10 @@ export const Channels = () => {
     };
   }, []);
 
-  // Re-init FB SDK when metaConfig changes (handles async /meta/config response)
+  // When metaConfig arrives from API, init FB SDK if it loaded first
   useEffect(() => {
     if (window.FB && metaConfig?.app_id && !fbInitializedRef.current) {
-      initFbSdk();
+      initFbSdk(metaConfig);
     }
   }, [metaConfig?.app_id]);
 
@@ -165,6 +189,8 @@ export const Channels = () => {
               await ApiClient.post('/channels/meta/embedded-signup', {
                 code: response.authResponse.code,
                 channel_name: channelName || 'WhatsApp Oficial Narrow',
+                waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
+                phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
               });
               setShowConnectModal(false);
               setChannelName('');
@@ -175,9 +201,6 @@ export const Channels = () => {
             }
           } else {
             console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
-            if (response.status === 'unknown') {
-              // User closed the popup
-            }
           }
           setMetaConnecting(false);
         },
@@ -187,6 +210,7 @@ export const Channels = () => {
           override_default_response_type: true,
           extras: {
             feature: 'whatsapp_embedded_signup',
+            sessionInfoVersion: '2',
             setup: {},
           },
         }
@@ -650,26 +674,45 @@ export const Channels = () => {
                   </span>
                 </div>
 
-                <div className="w-52 h-52 bg-white rounded-2xl mx-auto p-3 flex items-center justify-center shadow-xl">
-                  {wahaQrCode ? (
-                    wahaQrCode.startsWith('data:image') ? (
-                      <img src={wahaQrCode} alt="WhatsApp QR Code" className="w-full h-full object-contain" />
-                    ) : (
-                      <QRCodeSVG
-                        value={wahaQrCode}
-                        size={180}
-                        bgColor="#ffffff"
-                        fgColor="#000000"
-                        level="M"
-                        includeMargin={false}
+                <div className="w-52 h-52 bg-white rounded-2xl mx-auto p-3 flex items-center justify-center shadow-xl overflow-hidden">
+                  {(() => {
+                    if (!wahaQrCode) {
+                      return (
+                        <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
+                          <RefreshCw className="w-8 h-8 animate-spin text-brand-500" />
+                          <span className="text-[11px] font-medium">Carregando QR Code do WAHA...</span>
+                        </div>
+                      );
+                    }
+                    if (wahaQrCode.startsWith('data:image/') || wahaQrCode.startsWith('http://') || wahaQrCode.startsWith('https://')) {
+                      return <img src={wahaQrCode} alt="WhatsApp QR Code" className="w-full h-full object-contain rounded-xl" />;
+                    }
+                    if (wahaQrCode.startsWith('iVBORw0KGgo') || wahaQrCode.startsWith('/9j/') || (wahaQrCode.length > 500 && !wahaQrCode.includes('<svg'))) {
+                      return <img src={`data:image/png;base64,${wahaQrCode}`} alt="WhatsApp QR Code" className="w-full h-full object-contain rounded-xl" />;
+                    }
+                    if (wahaQrCode.startsWith('<svg')) {
+                      return <div className="w-full h-full flex items-center justify-center" dangerouslySetInnerHTML={{ __html: wahaQrCode }} />;
+                    }
+                    if (wahaQrCode.length <= 1000) {
+                      return (
+                        <QRCodeSVG
+                          value={wahaQrCode}
+                          size={180}
+                          bgColor="#ffffff"
+                          fgColor="#000000"
+                          level="L"
+                          includeMargin={false}
+                        />
+                      );
+                    }
+                    return (
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(wahaQrCode)}`}
+                        alt="WhatsApp QR Code"
+                        className="w-full h-full object-contain"
                       />
-                    )
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
-                      <RefreshCw className="w-8 h-8 animate-spin text-brand-500" />
-                      <span className="text-[11px] font-medium">Carregando QR Code do WAHA...</span>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
