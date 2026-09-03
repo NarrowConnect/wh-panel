@@ -71,15 +71,25 @@ export const Conversations = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Fetch conversations
+  // Fetch conversations (Chatwoot-like filters aligned with backend)
   const fetchConversations = async () => {
     try {
       const params = {};
-      if (filterTab === 'mine') params.assigned_user_id = user?.id;
-      if (filterTab === 'unassigned') params.status = 'open';
-      if (filterTab === 'resolved') params.status = 'resolved';
+      if (filterTab === 'mine') {
+        params.assigned_to = 'me';
+        params.status = 'open';
+      } else if (filterTab === 'unassigned') {
+        params.assigned_to = 'unassigned';
+        params.status = 'open';
+      } else if (filterTab === 'all') {
+        params.assigned_to = 'all';
+        params.status = 'all';
+      } else if (filterTab === 'resolved') {
+        params.status = 'resolved';
+      }
       if (selectedQueue) params.queue_id = selectedQueue;
       if (selectedChannel) params.channel_id = selectedChannel;
+      if (searchQuery) params.search = searchQuery;
 
       const data = await ApiClient.get('/conversations', params);
       const list = Array.isArray(data) ? data : (data?.conversations || []);
@@ -124,7 +134,7 @@ export const Conversations = () => {
       const tmplList = Array.isArray(res) ? res : (res?.templates || []);
       setTemplates(tmplList);
     }).catch(() => {});
-  }, [filterTab, selectedQueue, selectedChannel]);
+  }, [filterTab, selectedQueue, selectedChannel, searchQuery]);
 
   // WebSocket Subscription for Real-time incoming messages
   useEffect(() => {
@@ -220,14 +230,17 @@ export const Conversations = () => {
     }
   };
 
-  // Filtered list
+  // Filtered list (server already filters via ?search=, keep client fallback for nested structure)
   const filteredConversations = (Array.isArray(conversations) ? conversations : []).filter((c) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const name = c.contact_name || c.contact?.name || '';
+    const phone = c.contact_phone || c.contact?.phone || '';
+    const preview = c.last_message_preview || '';
     return (
-      c.contact_name?.toLowerCase().includes(q) ||
-      c.contact_phone?.includes(q) ||
-      c.last_message_preview?.toLowerCase().includes(q)
+      name.toLowerCase().includes(q) ||
+      (phone && phone.includes(q)) ||
+      preview.toLowerCase().includes(q)
     );
   });
 
@@ -293,7 +306,10 @@ export const Conversations = () => {
           ) : (
             filteredConversations.map((conv) => {
               const isSelected = selectedConv?.id === conv.id;
-              const channelType = conv.channel_type || 'whatsapp';
+              const channelType = conv.channel_type || conv.channel?.type || conv.contact?.channel_type || 'whatsapp';
+              const displayName = conv.contact_name || conv.contact?.name || '';
+              const displayPhone = conv.contact_phone || conv.contact?.phone || '';
+              const assignedName = conv.assigned_user_name || conv.assigned_user?.name || '';
 
               return (
                 <div
@@ -308,7 +324,7 @@ export const Conversations = () => {
                   {/* Contact Avatar & Channel Badge */}
                   <div className="relative flex-shrink-0">
                     <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-200 font-bold flex items-center justify-center border border-slate-700 text-xs">
-                      {conv.contact_name?.charAt(0) || 'C'}
+                      {(displayName || displayPhone || 'C').charAt(0)}
                     </div>
                     {/* Channel Indicator Badge */}
                     <div
@@ -328,7 +344,7 @@ export const Conversations = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <h4 className="text-xs font-bold text-white truncate">
-                        {conv.contact_name || conv.contact_phone || 'Contato Desconhecido'}
+                        {displayName || displayPhone || 'Contato Desconhecido'}
                       </h4>
                       <span className="text-[10px] text-slate-500 whitespace-nowrap ml-1">
                         {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
@@ -352,9 +368,9 @@ export const Conversations = () => {
                         {conv.status}
                       </span>
 
-                      {conv.assigned_user_name && (
+                      {assignedName && (
                         <span className="text-[9px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded truncate max-w-[90px]">
-                          👤 {conv.assigned_user_name}
+                          👤 {assignedName}
                         </span>
                       )}
                     </div>

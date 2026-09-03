@@ -65,7 +65,12 @@ func SetTenantContext(ctx context.Context, db *sqlx.DB, companyID string) error 
 		_, err := db.ExecContext(ctx, "RESET app.current_company_id")
 		return err
 	}
-	// Sanitize uuid input
-	_, err := db.ExecContext(ctx, fmt.Sprintf("SET app.current_company_id = '%s'", companyID))
+	_, err := db.ExecContext(ctx, "SET app.current_company_id = $1", companyID)
+	return err
+}
+
+// ResetTenantContext clears the RLS variable to avoid cross-tenant leak on pooled connections
+func ResetTenantContext(ctx context.Context, db *sqlx.DB) error {
+	_, err := db.ExecContext(ctx, "RESET app.current_company_id")
 	return err
 }

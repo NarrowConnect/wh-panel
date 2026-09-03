@@ -22,11 +22,19 @@ type Template struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+type TemplateButton struct {
+	Type        string `json:"type"` // QUICK_REPLY, URL, PHONE_NUMBER
+	Text        string `json:"text"`
+	URL         string `json:"url,omitempty"`
+	PhoneNumber string `json:"phone_number,omitempty"`
+}
+
 type TemplateComponent struct {
-	Type   string                   `json:"type"` // HEADER, BODY, FOOTER, BUTTONS
-	Format string                   `json:"format,omitempty"` // TEXT, MEDIA, IMAGE
-	Text   string                   `json:"text,omitempty"`
-	Buttons []map[string]interface{} `json:"buttons,omitempty"`
+	Type       string                 `json:"type"` // HEADER, BODY, FOOTER, BUTTONS
+	Format     string                 `json:"format,omitempty"` // TEXT, MEDIA, IMAGE, VIDEO, DOCUMENT
+	Text       string                 `json:"text,omitempty"`
+	Example    map[string]interface{} `json:"example,omitempty"`
+	Buttons    []TemplateButton       `json:"buttons,omitempty"`
 }
 
 type CreateTemplateRequest struct {

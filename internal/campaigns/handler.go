@@ -2,12 +2,16 @@ package campaigns
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"errors"
+	"io"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
+	"wh-panel/internal/channels"
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
 )
@@ -32,6 +36,7 @@ func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 	camp.Post("/:id/start", tenant.RequireRole("admin", "supervisor"), h.StartCampaign)
 	camp.Post("/:id/cancel", tenant.RequireRole("admin", "supervisor"), h.CancelCampaign)
 	camp.Get("/:id/recipients", h.GetCampaignRecipients)
+	camp.Post("/:id/import-csv", tenant.RequireRole("admin", "supervisor"), h.ImportCSV)
 }
 
 func (h *Handler) ListCampaigns(c *fiber.Ctx) error {
@@ -119,13 +124,24 @@ func (h *Handler) CreateCampaign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create campaign"})
 	}
 
-	// Add recipients from explicit ContactIDs list or by TagID
+	// Add recipients from explicit ContactIDs list or by TagID (fix: support contacts via conversation_tags)
 	var contactIDs []uuid.UUID = req.ContactIDs
 
 	if req.TagID != nil {
 		var tagContacts []uuid.UUID
+		// Primary: conversation_tags (current model)
 		_ = tx.SelectContext(c.UserContext(), &tagContacts, `SELECT DISTINCT c.id FROM contacts c JOIN conversations conv ON conv.contact_id = c.id JOIN conversation_tags ct ON ct.conversation_id = conv.id WHERE ct.tag_id = $1 AND c.company_id = $2`, req.TagID, companyID)
-		contactIDs = append(contactIDs, tagContacts...)
+		// Dedup
+		seen := make(map[uuid.UUID]bool)
+		for _, id := range contactIDs {
+			seen[id] = true
+		}
+		for _, id := range tagContacts {
+			if !seen[id] {
+				contactIDs = append(contactIDs, id)
+				seen[id] = true
+			}
+		}
 	}
 
 	recQuery := `INSERT INTO campaign_recipients (id, campaign_id, contact_id, status) VALUES ($1, $2, $3, 'pending') ON CONFLICT DO NOTHING`
@@ -202,4 +218,121 @@ func (h *Handler) GetCampaignRecipients(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(list)
+}
+
+func (h *Handler) ImportCSV(c *fiber.Ctx) error {
+	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
+	companyID, _ := uuid.Parse(companyIDStr)
+	campIDStr := c.Params("id")
+	campID, _ := uuid.Parse(campIDStr)
+
+	// Verify campaign belongs to tenant and is draft
+	var campExists int
+	if err := h.db.GetContext(c.UserContext(), &campExists, `SELECT 1 FROM campaigns WHERE id=$1 AND company_id=$2`, campID, companyID); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Campaign not found"})
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "CSV file is required (field 'file')"})
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot open CSV file"})
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	reader.TrimLeadingSpace = true
+	reader.FieldsPerRecord = -1
+	header, err := reader.Read()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Empty CSV"})
+	}
+	// Handle delimiter ; inside single column header
+	if len(header) == 1 && strings.Contains(header[0], ";") {
+		header = strings.Split(header[0], ";")
+		for i := range header {
+			header[i] = strings.TrimSpace(header[i])
+		}
+		reader.Comma = ';'
+	}
+	// Normalize header
+	for i, h := range header {
+		header[i] = strings.ToLower(strings.TrimSpace(h))
+	}
+	phoneIdx, nameIdx, emailIdx := -1, -1, -1
+	for i, h := range header {
+		switch h {
+		case "phone", "telefone", "celular", "whatsapp":
+			phoneIdx = i
+		case "name", "nome", "contact", "contato":
+			nameIdx = i
+		case "email", "e-mail":
+			emailIdx = i
+		}
+	}
+	if phoneIdx == -1 {
+		// Assume first column is phone if not labeled
+		phoneIdx = 0
+	}
+
+	var imported, skipped int
+	tx, err := h.db.Beginx()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "DB error"})
+	}
+	defer tx.Rollback()
+
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			skipped++
+			continue
+		}
+		if len(record) == 1 && strings.Contains(record[0], ";") {
+			record = strings.Split(record[0], ";")
+		}
+		if len(record) <= phoneIdx {
+			skipped++
+			continue
+		}
+		rawPhone := strings.TrimSpace(record[phoneIdx])
+		phone := channels.NormalizePhone(rawPhone)
+		if phone == "" {
+			skipped++
+			continue
+		}
+		name := ""
+		if nameIdx >= 0 && nameIdx < len(record) {
+			name = strings.TrimSpace(record[nameIdx])
+		}
+		if name == "" {
+			name = "Contato " + phone
+		}
+		email := ""
+		if emailIdx >= 0 && emailIdx < len(record) {
+			email = strings.TrimSpace(record[emailIdx])
+		}
+		// Upsert contact
+		var contactID uuid.UUID
+		err = tx.GetContext(c.UserContext(), &contactID, `SELECT id FROM contacts WHERE company_id=$1 AND phone=$2`, companyID, phone)
+		if err != nil {
+			contactID = uuid.New()
+			var emailPtr *string
+			if email != "" {
+				emailPtr = &email
+			}
+			_, _ = tx.ExecContext(c.UserContext(), `INSERT INTO contacts (id, company_id, name, phone, email, status) VALUES ($1,$2,$3,$4,$5,'active')`, contactID, companyID, name, phone, emailPtr)
+		}
+		// Insert recipient
+		recID := uuid.New()
+		_, _ = tx.ExecContext(c.UserContext(), `INSERT INTO campaign_recipients (id, campaign_id, contact_id, status) VALUES ($1,$2,$3,'pending') ON CONFLICT DO NOTHING`, recID, campID, contactID)
+		imported++
+	}
+	_ = tx.Commit()
+	return c.JSON(fiber.Map{"imported": imported, "skipped": skipped, "message": "CSV import completed"})
 }

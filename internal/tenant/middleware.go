@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"context"
 	"log"
 	"strings"
 
@@ -55,6 +56,12 @@ func AuthAndTenantMiddleware(jwtMgr *auth.JWTManager, db *sqlx.DB) fiber.Handler
 			if err := postgres.SetTenantContext(c.UserContext(), db, claims.CompanyID.String()); err != nil {
 				log.Printf("[TenantMiddleware] Error setting postgres RLS tenant context: %v", err)
 			}
+			// Ensure RLS variable is cleared after request to avoid pool leak
+			defer func() {
+				if err := postgres.ResetTenantContext(context.Background(), db); err != nil {
+					log.Printf("[TenantMiddleware] Error resetting postgres RLS tenant context: %v", err)
+				}
+			}()
 		}
 
 		return c.Next()

@@ -70,7 +70,7 @@ const MainLayout = () => {
       case 'channels':
         return <Channels />;
       case 'contacts':
-        return <Contacts />;
+        return <Contacts onOpenChat={() => setActiveTab('conversations')} />;
       case 'templates':
         return <Templates />;
       case 'queues':

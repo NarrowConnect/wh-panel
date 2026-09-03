@@ -193,7 +193,10 @@ export const Channels = () => {
               waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
               phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
             })
-              .then(() => {
+              .then((res) => {
+                if (res && res.channel && res.channel.id) {
+                  setChannels((prev) => [res.channel, ...prev.filter((c) => c.id !== res.channel.id)]);
+                }
                 setShowConnectModal(false);
                 setChannelName('');
                 fetchChannels();

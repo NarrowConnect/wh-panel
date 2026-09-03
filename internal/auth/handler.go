@@ -11,11 +11,13 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"wh-panel/internal/models"
+	"wh-panel/pkg/redis"
 )
 
 type Handler struct {
-	db     *sqlx.DB
-	jwtMgr *JWTManager
+	db          *sqlx.DB
+	jwtMgr      *JWTManager
+	redisClient *redis.Client
 }
 
 func NewHandler(db *sqlx.DB, jwtMgr *JWTManager) *Handler {
@@ -25,10 +27,14 @@ func NewHandler(db *sqlx.DB, jwtMgr *JWTManager) *Handler {
 	}
 }
 
+func NewHandlerWithRedis(db *sqlx.DB, jwtMgr *JWTManager, rc *redis.Client) *Handler {
+	return &Handler{db: db, jwtMgr: jwtMgr, redisClient: rc}
+}
+
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	authGroup := router.Group("/auth")
-	authGroup.Post("/login", h.Login)
-	authGroup.Post("/register", h.Register)
+	authGroup.Post("/login", RateLimitLogin(h.redisClient), h.Login)
+	authGroup.Post("/register", RateLimitLogin(h.redisClient), h.Register)
 	authGroup.Post("/refresh", h.RefreshToken)
 	authGroup.Post("/logout", h.Logout)
 }
@@ -198,6 +204,10 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 
 	if adminName == "" {
 		adminName = "Administrador"
+	}
+
+	if !isStrongPassword(req.Password) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Senha fraca: minimo 8 caracteres com maiuscula, minuscula e numero"})
 	}
 
 	tx, err := h.db.Beginx()

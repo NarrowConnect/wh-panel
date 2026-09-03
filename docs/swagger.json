@@ -19,7 +19,8 @@
   "paths": {
     "/health": {
       "get": {
-        "summary": "Healthcheck endpoint para EasyPanel e load balancers",
+        "summary": "Healthcheck endpoint para EasyPanel e load balancers (ROOT - fora de /api/v1)",
+        "description": "Endpoint em GET /health (raiz), não sob /api/v1. Retorna status do Postgres e Redis.",
         "produces": ["application/json"],
         "responses": {
           "200": { "description": "Status OK com estado do Postgres e Redis" }
@@ -208,6 +209,52 @@
         "summary": "Lista provedores de IA configurados (OpenAI, Anthropic, DeepSeek)",
         "security": [{ "Bearer": [] }],
         "responses": { "200": { "description": "Provedores de IA" } }
+      }
+    },
+    "/crm/pipelines/{id}": {
+      "put": {
+        "summary": "Atualiza pipeline (nome/is_default)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Pipeline atualizado" } }
+      }
+    },
+    "/crm/stages/{stage_id}": {
+      "put": {
+        "summary": "Atualiza etapa Kanban (nome/cor/ordem)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Stage atualizado" } }
+      }
+    },
+    "/crm/cards": {
+      "get": {
+        "summary": "Lista cards paginada (pipeline_id/search/status)",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Lista de cards" } }
+      },
+      "post": {
+        "summary": "Cria card com contact inline e custom_values",
+        "security": [{ "Bearer": [] }],
+        "responses": { "201": { "description": "Card criado" } }
+      }
+    },
+    "/campaigns/{id}/import-csv": {
+      "post": {
+        "summary": "Importa CSV de contatos para campanha",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "Importado" } }
+      }
+    },
+    "/reports/conversations/export/pdf": {
+      "get": {
+        "summary": "Download PDF de conversas",
+        "security": [{ "Bearer": [] }],
+        "responses": { "200": { "description": "PDF gerado" } }
+      }
+    },
+    "/widget.js": {
+      "get": {
+        "summary": "Widget webchat embeddable (spec 3.3)",
+        "responses": { "200": { "description": "JavaScript widget" } }
       }
     }
   }

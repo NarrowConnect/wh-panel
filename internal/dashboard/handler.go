@@ -30,8 +30,14 @@ func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 }
 
 func parseDateRange(c *fiber.Ctx) (string, []interface{}, int) {
+	return parseDashboardFilters(c, "created_at")
+}
+
+func parseDashboardFilters(c *fiber.Ctx, dateColumn string) (string, []interface{}, int) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
+	queueID := c.Query("queue_id")
+	channelID := c.Query("channel_id")
 
 	whereClause := ""
 	args := []interface{}{}
@@ -39,20 +45,36 @@ func parseDateRange(c *fiber.Ctx) (string, []interface{}, int) {
 
 	if startDateStr != "" {
 		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
-			whereClause += fmt.Sprintf(" AND created_at >= $%d", paramIdx)
+			whereClause += fmt.Sprintf(" AND %s >= $%d", dateColumn, paramIdx)
 			args = append(args, t)
 			paramIdx++
 		}
 	}
-
 	if endDateStr != "" {
 		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
-			// Add end of day timestamp
 			tEnd := t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
-			whereClause += fmt.Sprintf(" AND created_at <= $%d", paramIdx)
+			whereClause += fmt.Sprintf(" AND %s <= $%d", dateColumn, paramIdx)
 			args = append(args, tEnd)
 			paramIdx++
 		}
+	}
+	if queueID != "" {
+		whereClause += fmt.Sprintf(" AND queue_id = $%d", paramIdx)
+		if qid, err := uuid.Parse(queueID); err == nil {
+			args = append(args, qid)
+		} else {
+			args = append(args, queueID)
+		}
+		paramIdx++
+	}
+	if channelID != "" {
+		whereClause += fmt.Sprintf(" AND channel_id = $%d", paramIdx)
+		if cid, err := uuid.Parse(channelID); err == nil {
+			args = append(args, cid)
+		} else {
+			args = append(args, channelID)
+		}
+		paramIdx++
 	}
 
 	return whereClause, args, paramIdx
@@ -62,7 +84,7 @@ func (h *Handler) GetKPIs(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 
-	dateWhere, dateArgs, _ := parseDateRange(c)
+	dateWhere, dateArgs, _ := parseDashboardFilters(c, "conversations.created_at")
 
 	var kpis models.DashboardKPIs
 	args := append([]interface{}{companyID}, dateArgs...)
@@ -98,7 +120,7 @@ func (h *Handler) GetChannelVolume(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 
-	dateWhere, dateArgs, _ := parseDateRange(c)
+	dateWhere, dateArgs, _ := parseDashboardFilters(c, "cv.created_at")
 	args := append([]interface{}{companyID}, dateArgs...)
 
 	var metrics []models.ChannelVolumeMetric
@@ -124,7 +146,7 @@ func (h *Handler) GetAttendantsPerformance(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 
-	dateWhere, dateArgs, _ := parseDateRange(c)
+	dateWhere, dateArgs, _ := parseDashboardFilters(c, "c.created_at")
 	args := append([]interface{}{companyID}, dateArgs...)
 
 	var metrics []models.AttendantPerformanceMetric
@@ -153,7 +175,7 @@ func (h *Handler) GetSentimentAnalysis(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 
-	dateWhere, dateArgs, _ := parseDateRange(c)
+	dateWhere, dateArgs, _ := parseDashboardFilters(c, "messages.created_at")
 	args := append([]interface{}{companyID}, dateArgs...)
 
 	var metric models.SentimentAnalysisMetric
@@ -178,7 +200,7 @@ func (h *Handler) GetStatusFunnel(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 
-	dateWhere, dateArgs, _ := parseDateRange(c)
+	dateWhere, dateArgs, _ := parseDashboardFilters(c, "conversations.created_at")
 	args := append([]interface{}{companyID}, dateArgs...)
 
 	var funnel []models.StatusFunnelMetric

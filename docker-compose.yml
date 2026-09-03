@@ -11,6 +11,7 @@ services:
     environment:
       - PORT=8080
       - ENV=${ENV:-development}
+      - APP_URL=${APP_URL:-http://localhost:8080}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=${DB_USER:-wh_user}
@@ -21,6 +22,14 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-in-production-32bytes}
+      - META_APP_ID=${META_APP_ID:-}
+      - META_APP_SECRET=${META_APP_SECRET:-}
+      - META_VERIFY_TOKEN=${META_VERIFY_TOKEN:-narrow_wh_verify_secret_2026}
+      - META_API_VERSION=${META_API_VERSION:-v20.0}
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN:-}
+      - META_CONFIG_ID=${META_CONFIG_ID:-894644480139460}
+      - WAHA_BASE_URL=${WAHA_BASE_URL:-http://waha:3000}
+      - WAHA_API_KEY=${WAHA_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +76,27 @@ services:
       timeout: 5s
       retries: 5
 
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: wh_panel_waha
+    ports:
+      - "3000:3000"
+    environment:
+      - WAHA_API_KEY=${WAHA_API_KEY:-}
+      - WAHA_BASE_URL=http://waha:3000
+    volumes:
+      - waha_sessions:/app/.sessions
+      - waha_media:/app/.media
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/sessions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
   uploads_data:
+  waha_sessions:
+  waha_media:

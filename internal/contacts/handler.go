@@ -84,6 +84,25 @@ func (h *Handler) ListContacts(c *fiber.Ctx) error {
 		}
 	}
 
+	for i := range list {
+		customValues := make(map[string]string)
+		customQuery := `SELECT cf.key, cv.value 
+			FROM contact_custom_values cv
+			JOIN custom_fields cf ON cf.id = cv.custom_field_id
+			WHERE cv.contact_id = $1 AND cf.company_id = $2`
+		rows, err := h.db.QueryxContext(c.UserContext(), customQuery, list[i].ID, companyID)
+		if err == nil {
+			for rows.Next() {
+				var key, val string
+				if err := rows.Scan(&key, &val); err == nil {
+					customValues[key] = val
+				}
+			}
+			rows.Close()
+		}
+		list[i].CustomValues = customValues
+	}
+
 	return c.JSON(fiber.Map{
 		"contacts": list,
 		"total":    total,

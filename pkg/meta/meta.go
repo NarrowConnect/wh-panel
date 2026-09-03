@@ -167,6 +167,59 @@ func (c *Client) SendTextMessage(ctx context.Context, phoneNumberID, accessToken
 	return result, nil
 }
 
+// SubmitTemplate creates a message template on the WABA via Meta Graph API
+func (c *Client) SubmitTemplate(ctx context.Context, wabaID, accessToken, name, category, language string, components interface{}) (string, error) {
+	if accessToken == "" {
+		accessToken = c.accessToken
+	}
+	if wabaID == "" {
+		return "", fmt.Errorf("waba_id is required to submit template")
+	}
+	if accessToken == "" {
+		return "", fmt.Errorf("meta access token is required")
+	}
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/message_templates", c.apiVersion, wabaID)
+	payload := map[string]interface{}{
+		"name":     name,
+		"category": category,
+		"language": language,
+		"components": components,
+	}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error calling Meta submit template: %w", err)
+	}
+	defer resp.Body.Close()
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("meta submit template error (status %d): %s", resp.StatusCode, string(respBytes))
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(respBytes, &result)
+	if result.ID == "" {
+		// fallback parse as generic map
+		var m map[string]interface{}
+		_ = json.Unmarshal(respBytes, &m)
+		if v, ok := m["id"].(string); ok {
+			return v, nil
+		}
+		return fmt.Sprintf("meta_%s", name), nil
+	}
+	return result.ID, nil
+}
+
 // ExchangeEmbeddedSignupCode exchanges the OAuth authorization code returned by the Embedded Signup popup
 // for a long-lived user access token, queries the associated WABA ID and Phone Number ID, and registers webhooks.
 func (c *Client) ExchangeEmbeddedSignupCode(ctx context.Context, code string) (*EmbeddedSignupResult, error) {

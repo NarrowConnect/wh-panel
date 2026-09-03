@@ -69,21 +69,43 @@ func (h *Hub) run() {
 			h.mu.Unlock()
 
 		case event := <-h.broadcast:
+			payload, err := json.Marshal(event)
+			if err != nil {
+				log.Printf("[WebSocket] Failed to marshal event %s: %v", event.Event, err)
+				continue
+			}
+			// Snapshot clients under RLock to avoid holding lock during I/O
 			h.mu.RLock()
 			companyClients := h.companies[event.CompanyID]
-			payload, err := json.Marshal(event)
-			if err == nil && companyClients != nil {
-				for client := range companyClients {
-					err := client.Conn.WriteMessage(websocket.TextMessage, payload)
-					if err != nil {
-						log.Printf("[WebSocket] Write error to client %s: %v", client.UserID, err)
-						client.Conn.Close()
-						delete(h.clients, client)
-						delete(h.companies[client.CompanyID], client)
-					}
-				}
+			clients := make([]*Client, 0, len(companyClients))
+			for cl := range companyClients {
+				clients = append(clients, cl)
 			}
 			h.mu.RUnlock()
+
+			var failed []*Client
+			for _, client := range clients {
+				if err := client.Conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+					log.Printf("[WebSocket] Write error to client %s: %v", client.UserID, err)
+					failed = append(failed, client)
+				}
+			}
+			if len(failed) > 0 {
+				h.mu.Lock()
+				for _, client := range failed {
+					if _, ok := h.clients[client]; ok {
+						_ = client.Conn.Close()
+						delete(h.clients, client)
+						if h.companies[client.CompanyID] != nil {
+							delete(h.companies[client.CompanyID], client)
+							if len(h.companies[client.CompanyID]) == 0 {
+								delete(h.companies, client.CompanyID)
+							}
+						}
+					}
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }

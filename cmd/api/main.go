@@ -1,3 +1,11 @@
+// @title WH Panel Omnichannel SaaS API
+// @version 1.0.0
+// @description Plataforma SaaS multi-tenant Chatwoot + Kommo + Flow Engine (Fiber + Postgres RLS + Redis) - docs gerados via swaggo/swag, servido em /docs
+// @host localhost:8080
+// @BasePath /api/v1
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
 package main
 
 import (
@@ -80,6 +88,8 @@ func main() {
 			"migrations/000009_integrations_webhooks.up.sql",
 			"migrations/000010_campaigns.up.sql",
 			"migrations/000011_billing_and_ai.up.sql",
+			"migrations/000012_crm_robust.up.sql",
+			"migrations/000013_crm_clickup.up.sql",
 		}
 		for _, file := range migrationFiles {
 			if _, err := os.Stat(file); err == nil {
@@ -132,10 +142,12 @@ func main() {
 		},
 	})
 
-	// Middlewares
+	// Middlewares - JSON structured logs for EasyPanel
+	log.SetFlags(0)
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{
-		Format: "[${time}] ${status} - ${latency} ${method} ${path}\n",
+		Format: "{\"time\":\"${time}\",\"level\":\"info\",\"method\":\"${method}\",\"path\":\"${path}\",\"status\":${status},\"latency\":\"${latency}\",\"ip\":\"${ip}\"}\n",
+		TimeFormat: time.RFC3339,
 	}))
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
@@ -202,17 +214,21 @@ func main() {
 	})
 
 	// Initialize Handlers & Services
-	authHandler := auth.NewHandler(db, jwtMgr)
+	authHandler := auth.NewHandlerWithRedis(db, jwtMgr, redisClient)
 	tenantHandler := tenant.NewHandler(db, jwtMgr)
-	channelsHandler := channels.NewHandler(db, jwtSecret, metaClient, wahaClient)
-	contactsHandler := contacts.NewHandler(db)
-	conversationsHandler := conversations.NewHandler(db, redisClient, wsHub)
 	queuesService := queues.NewService(db, redisClient, wsHub)
+	flowsEngine := flows.NewEngine(db, wsHub)
+	channelsHandler := channels.NewHandlerWithQueue(db, jwtSecret, metaClient, wahaClient, queuesService)
+	channelsHandler.SetFlowEngine(flowsEngine)
+	channelsHandler.SetPublisher(eventPublisher)
+	contactsHandler := contacts.NewHandler(db)
+	conversationsHandler := conversations.NewHandler(db, redisClient, wsHub, metaClient, wahaClient, jwtSecret)
+	conversationsHandler.SetPublisher(eventPublisher)
 	queuesHandler := queues.NewHandler(db, queuesService)
 	dashboardHandler := dashboard.NewHandler(db)
-	templatesHandler := templates.NewHandler(db)
-	crmHandler := crm.NewHandler(db)
-	flowsEngine := flows.NewEngine(db, wsHub)
+	templatesHandler := templates.NewHandlerWithMeta(db, metaClient, jwtSecret)
+	crmHandler := crm.NewHandlerWithPublisher(db, eventPublisher)
+	crmHandler.SetWebSocketHub(wsHub)
 	flowsHandler := flows.NewHandler(db, flowsEngine)
 	integrationsHandler := integrations.NewHandler(db, jwtSecret, eventPublisher)
 	campaignsHandler := campaigns.NewHandler(db, campaignsDispatcher)
@@ -242,6 +258,19 @@ func main() {
 	campaignsHandler.RegisterProtectedRoutes(protected)
 	reportsHandler.RegisterProtectedRoutes(protected)
 	billingHandler.RegisterProtectedRoutes(protected)
+
+	// Uploads static (mídia de conversas) — spec 5
+	_ = os.MkdirAll("uploads", 0755)
+	app.Static("/uploads", "./uploads")
+	// Webchat widget (embeddable) — spec 3.3
+	app.Get("/widget.js", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "application/javascript")
+		// Prefer built dist copy if exists, fallback to source
+		if _, err := os.Stat("./web/dist/widget.js"); err == nil {
+			return c.SendFile("./web/dist/widget.js")
+		}
+		return c.SendFile("./web/widget.js")
+	})
 
 	// Static Web SPA Serving (React Frontend)
 	if _, err := os.Stat("web/dist"); err == nil {
