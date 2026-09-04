@@ -122,6 +122,32 @@ export class ApiClient {
   static delete(endpoint) {
     return this.request(endpoint, { method: 'DELETE' });
   }
+
+  static async uploadFile(endpoint, file, fieldName = 'file') {
+    const token = this.getToken();
+    const formData = new FormData();
+    formData.append(fieldName, file);
+
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { error: response.statusText || 'Erro no upload' };
+      }
+      throw new Error(errorData.error || `Erro ${response.status}`);
+    }
+
+    return response.json();
+  }
 }
 
 export default ApiClient;

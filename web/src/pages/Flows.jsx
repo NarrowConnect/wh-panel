@@ -43,6 +43,14 @@ import {
 } from 'lucide-react';
 import ApiClient from '../api/client';
 
+const CONDITION_OPERATOR_LABELS = {
+  equals: 'é igual a',
+  not_equals: 'é diferente de',
+  contains: 'contém',
+  gte: 'é maior ou igual a',
+  lte: 'é menor ou igual a',
+};
+
 export const Flows = () => {
   // Screen Mode: 'list' (Pré-tela de visualização de fluxos) or 'editor' (Canvas & Sincronização)
   const [screenMode, setScreenMode] = useState('list');
@@ -107,7 +115,7 @@ export const Flows = () => {
             type: 'ai_agent',
             title: 'Agente IA SDR de Boas-Vindas',
             data: {
-              persona: 'SDR Consultivo da Narrow Connect',
+              persona: 'SDR Consultivo',
               instructions: 'Dê as boas-vindas calorosas, pergunte o nome da empresa e o volume de atendentes que precisam conectar.',
               fields_to_collect: [
                 { name: 'empresa', label: 'Nome da Empresa', type: 'text', required: true },
@@ -134,7 +142,7 @@ export const Flows = () => {
             id: 'n_4',
             type: 'message',
             title: 'Oferta Plano Pro Self-Service',
-            data: { text: 'Perfeito! Para até 4 atendentes, você pode testar gratuitamente por 7 dias no link: https://painel.narrowconnect.com.br/trial' },
+            data: { text: 'Perfeito! Para até 4 atendentes, você pode testar gratuitamente por 7 dias no link: https://wh-panel.com/trial' },
             position: { x: 630, y: 200 },
           },
         ],
@@ -568,7 +576,7 @@ export const Flows = () => {
             <div className="glass-card p-3.5 rounded-xl border border-slate-800 flex items-center justify-between">
               <div>
                 <span className="text-[11px] text-slate-400 font-medium">Execuções Registradas</span>
-                <div className="text-lg font-bold text-purple-400 font-mono">{totalExecutions.toLocaleString()}</div>
+                <div className="text-lg font-bold text-purple-400 font-mono">{totalExecutions.toLocaleString('pt-BR')}</div>
               </div>
               <div className="w-8 h-8 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center">
                 <Activity className="w-4 h-4" />
@@ -725,11 +733,13 @@ export const Flows = () => {
                             >
                               {chId === 'whatsapp_meta'
                                 ? 'WhatsApp Oficial'
-                                : chId === 'whatsapp_baileys'
+                                : chId === 'whatsapp_baileys' || chId === 'whatsapp_qr'
                                 ? 'WhatsApp QR'
                                 : chId === 'instagram'
                                 ? 'Instagram'
-                                : 'Webchat'}
+                                : chId === 'webchat'
+                                ? 'Webchat'
+                                : chId}
                             </span>
                           ))}
                         </div>
@@ -737,7 +747,7 @@ export const Flows = () => {
 
                       {/* Bottom Footer Info & Enter Button */}
                       <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                        <span>{flow.nodes_count || 3} etapas no canvas</span>
+                        <span>{flow.nodes_count || 3} {(flow.nodes_count || 3) === 1 ? 'etapa no canvas' : 'etapas no canvas'}</span>
                         <span className="text-brand-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
                           Editar Fluxo <ChevronRight className="w-3.5 h-3.5" />
                         </span>
@@ -780,7 +790,7 @@ export const Flows = () => {
                         : 'bg-slate-800 text-slate-400'
                     }`}
                   >
-                    {selectedFlow.status === 'active' ? 'Ativo' : 'Rascunho'}
+                    {selectedFlow.status === 'active' ? 'Ativo' : selectedFlow.status === 'draft' ? 'Rascunho' : 'Inativo'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 line-clamp-1">{selectedFlow.description}</p>
@@ -961,7 +971,7 @@ export const Flows = () => {
                                   Persona: {node.data?.persona || 'Consultor'}
                                 </p>
                                 <p className="text-[10px] text-slate-500">
-                                  {node.data?.fields_to_collect?.length || 1} campos de coleta
+                                  {node.data?.fields_to_collect?.length || 1} {(node.data?.fields_to_collect?.length || 1) === 1 ? 'campo de coleta' : 'campos de coleta'}
                                 </p>
                               </>
                             )}
@@ -977,7 +987,7 @@ export const Flows = () => {
                             )}
                             {node.type === 'condition' && (
                               <p className="font-medium text-amber-300">
-                                Se {node.data?.field} {node.data?.operator} {node.data?.value}
+                                Se {node.data?.field} {CONDITION_OPERATOR_LABELS[node.data?.operator] || node.data?.operator} {node.data?.value}
                               </p>
                             )}
                             {node.type === 'crm_stage' && (
@@ -1107,6 +1117,68 @@ export const Flows = () => {
                             <option value="financeiro">Fila Financeiro & Cobrança</option>
                             <option value="vip">Fila Clientes VIP</option>
                           </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Condition Configuration */}
+                    {selectedNode.type === 'condition' && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-slate-400 block mb-1 font-medium">Campo a Avaliar</label>
+                          <input
+                            type="text"
+                            value={selectedNode.data?.field || ''}
+                            placeholder="ex: interesse, empresa, urgencia"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newData = { ...selectedNode.data, field: val };
+                              setNodes((prev) =>
+                                prev.map((n) => (n.id === selectedNode.id ? { ...n, data: newData } : n))
+                              );
+                              setSelectedNode((prev) => ({ ...prev, data: newData }));
+                            }}
+                            className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-slate-400 block mb-1 font-medium">Operador</label>
+                          <select
+                            value={selectedNode.data?.operator || 'equals'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newData = { ...selectedNode.data, operator: val };
+                              setNodes((prev) =>
+                                prev.map((n) => (n.id === selectedNode.id ? { ...n, data: newData } : n))
+                              );
+                              setSelectedNode((prev) => ({ ...prev, data: newData }));
+                            }}
+                            className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white focus:outline-none"
+                          >
+                            <option value="equals">Igual a</option>
+                            <option value="not_equals">Diferente de</option>
+                            <option value="contains">Contém</option>
+                            <option value="gte">Maior ou igual a</option>
+                            <option value="lte">Menor ou igual a</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-slate-400 block mb-1 font-medium">Valor de Comparação</label>
+                          <input
+                            type="text"
+                            value={selectedNode.data?.value || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newData = { ...selectedNode.data, value: val };
+                              setNodes((prev) =>
+                                prev.map((n) => (n.id === selectedNode.id ? { ...n, data: newData } : n))
+                              );
+                              setSelectedNode((prev) => ({ ...prev, data: newData }));
+                            }}
+                            className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white focus:outline-none"
+                          />
                         </div>
                       </div>
                     )}
@@ -1268,7 +1340,7 @@ export const Flows = () => {
                         onChange={(e) => setSessionTimeoutMins(Number(e.target.value))}
                         className="w-24 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white font-mono focus:outline-none"
                       />
-                      <span className="text-xs text-slate-400">minutos sem resposta</span>
+                      <span className="text-xs text-slate-400">{sessionTimeoutMins === 1 ? 'minuto sem resposta' : 'minutos sem resposta'}</span>
                     </div>
                     <p className="text-[10px] text-slate-400">
                       Após este tempo sem interação do cliente, a sessão do bot é encerrada automaticamente.

@@ -39,15 +39,16 @@ export const Dashboard = () => {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (period = periodPreset) => {
     setLoading(true);
     try {
+      const params = { period };
       const [kpiRes, chanRes, attRes, sentRes, funRes] = await Promise.allSettled([
-        ApiClient.get('/dashboard/kpis'),
-        ApiClient.get('/dashboard/channels-volume'),
-        ApiClient.get('/dashboard/attendants-performance'),
-        ApiClient.get('/dashboard/sentiment-analysis'),
-        ApiClient.get('/dashboard/funnel'),
+        ApiClient.get('/dashboard/kpis', params),
+        ApiClient.get('/dashboard/channels-volume', params),
+        ApiClient.get('/dashboard/attendants-performance', params),
+        ApiClient.get('/dashboard/sentiment-analysis', params),
+        ApiClient.get('/dashboard/funnel', params),
       ]);
 
       if (kpiRes.status === 'fulfilled') setKpis(kpiRes.value || {});
@@ -72,8 +73,8 @@ export const Dashboard = () => {
   };
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    fetchDashboardData(periodPreset);
+  }, [periodPreset]);
 
   const totalConversations = kpis?.total_conversations || 0;
   const openConversations = kpis?.open_conversations || 0;
@@ -119,7 +120,7 @@ export const Dashboard = () => {
           </div>
 
           <button
-            onClick={() => fetchDashboardData()}
+            onClick={() => fetchDashboardData(periodPreset)}
             className="p-2 rounded-full bg-[#12141c] hover:bg-[#181b26] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
             title="Atualizar Métricas"
           >
@@ -239,9 +240,19 @@ export const Dashboard = () => {
 
           <div className="relative pt-2">
             <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-[#181a26]">
-              <div className="bg-emerald-400 h-full" style={{ width: `${(sentiment?.positive_count || 1) * 20}%` }} />
-              <div className="bg-amber-400 h-full" style={{ width: `${(sentiment?.neutral_count || 0) * 20}%` }} />
-              <div className="bg-rose-500 h-full" style={{ width: `${(sentiment?.negative_count || 0) * 20}%` }} />
+              {(() => {
+                const pos = sentiment?.positive_count || 0;
+                const neu = sentiment?.neutral_count || 0;
+                const neg = sentiment?.negative_count || 0;
+                const totalSentiment = pos + neu + neg || 1;
+                return (
+                  <>
+                    <div className="bg-emerald-400 h-full" style={{ width: `${(pos / totalSentiment) * 100}%` }} />
+                    <div className="bg-amber-400 h-full" style={{ width: `${(neu / totalSentiment) * 100}%` }} />
+                    <div className="bg-rose-500 h-full" style={{ width: `${(neg / totalSentiment) * 100}%` }} />
+                  </>
+                );
+              })()}
             </div>
             <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
               <span>Positivos: {sentiment?.positive_count || 0}</span>
@@ -255,7 +266,7 @@ export const Dashboard = () => {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-extrabold text-sm text-white flex items-center gap-1">
-                Narrow<span className="text-purple-400">®</span>
+                WH Panel
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 Oficial Meta
@@ -265,7 +276,7 @@ export const Dashboard = () => {
               Automação & Atendimento
             </h3>
             <p className="text-xs text-slate-300/80 leading-relaxed">
-              Integração completa com WhatsApp Cloud API oficial da Narrow Connect, WAHA VPS e CRM.
+              Integração completa com WhatsApp Cloud API, WAHA VPS e CRM.
             </p>
           </div>
 

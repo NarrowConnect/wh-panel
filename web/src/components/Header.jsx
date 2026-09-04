@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export const Header = ({ activeTitle }) => {
+export const Header = ({ activeTitle, onNavigate }) => {
   const { user, company, status, setStatus } = useAuth();
   const [showStatusMenu, setShowStatusMenu] = useState(false);
 
@@ -36,8 +36,8 @@ export const Header = ({ activeTitle }) => {
         </h1>
         <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-[#12141c] border border-white/[0.06] text-xs text-slate-300 font-medium">
           <Building2 className="w-3.5 h-3.5 text-purple-400" />
-          <span className="font-semibold text-white">{company?.name || 'Narrow Connect'}</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/15 text-purple-300 font-bold uppercase">
+          <span className="font-semibold text-white">{company?.name || 'WH Panel'}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/15 text-purple-300 font-bold uppercase">
             PRO
           </span>
         </div>
@@ -57,7 +57,7 @@ export const Header = ({ activeTitle }) => {
       <div className="flex items-center gap-3">
         {/* Quick Action Button (Stakent "Deposit" Style) */}
         <button
-          onClick={() => {}}
+          onClick={() => onNavigate?.('campaigns')}
           className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 active:scale-[0.98] text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all"
         >
           <Zap className="w-3.5 h-3.5 fill-white" />

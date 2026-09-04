@@ -402,6 +402,7 @@ func (h *Handler) ListCards(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
 	pipelineID := c.Query("pipeline_id")
+	contactID := c.Query("contact_id")
 	search := c.Query("search")
 	status := c.Query("status")
 	page := 1
@@ -427,6 +428,13 @@ func (h *Handler) ListCards(c *fiber.Ctx) error {
 		if pid, err := uuid.Parse(pipelineID); err == nil {
 			q += fmt.Sprintf(" AND pipeline_id=$%d", idx)
 			args = append(args, pid)
+			idx++
+		}
+	}
+	if contactID != "" {
+		if cid, err := uuid.Parse(contactID); err == nil {
+			q += fmt.Sprintf(" AND contact_id=$%d", idx)
+			args = append(args, cid)
 			idx++
 		}
 	}
@@ -461,6 +469,9 @@ func (h *Handler) ListCards(c *fiber.Ctx) error {
 			_ = h.db.GetContext(c.UserContext(), &ass, `SELECT id, name, email FROM users WHERE id=$1`, cards[i].AssigneeID)
 			cards[i].Assignee = &ass
 		}
+		var stageName string
+		_ = h.db.GetContext(c.UserContext(), &stageName, `SELECT name FROM crm_stages WHERE id=$1`, cards[i].StageID)
+		cards[i].StageName = stageName
 		_ = h.db.SelectContext(c.UserContext(), &cards[i].Subtasks, `SELECT id, card_id, company_id, title, is_done, created_at FROM crm_card_subtasks WHERE card_id=$1 ORDER BY created_at ASC`, cards[i].ID)
 	}
 	return c.JSON(fiber.Map{"cards": cards, "page": page, "limit": limit})

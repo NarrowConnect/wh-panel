@@ -47,7 +47,7 @@ export const Billing = () => {
           </div>
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Gestão de Planos SaaS & Motores de IA (3.12)</span>
+              <span>Gestão de Planos SaaS & Motores de IA</span>
             </h2>
             <p className="text-xs text-slate-400">
               Acompanhe quotas de consumo da empresa e configure chaves de API (OpenAI, Gemini e Claude)

@@ -46,8 +46,14 @@ export const Templates = () => {
   const [language, setLanguage] = useState('pt_BR');
   const [headerType, setHeaderType] = useState('NONE'); // NONE, TEXT, IMAGE, VIDEO, DOCUMENT
   const [headerText, setHeaderText] = useState('');
+  const [headerSampleValue, setHeaderSampleValue] = useState('');
+  const [headerMediaHandle, setHeaderMediaHandle] = useState('');
+  const [headerMediaFileName, setHeaderMediaFileName] = useState('');
+  const [headerMediaPreviewUrl, setHeaderMediaPreviewUrl] = useState('');
+  const [uploadingHeaderMedia, setUploadingHeaderMedia] = useState(false);
+  const [headerMediaError, setHeaderMediaError] = useState('');
   const [bodyText, setBodyText] = useState('Olá {{1}}, seu pedido número {{2}} foi confirmado com sucesso!');
-  const [footerText, setFooterText] = useState('Narrow Connect WhatsApp Oficial');
+  const [footerText, setFooterText] = useState('WH Panel WhatsApp Oficial');
 
   // Dynamic Variable Samples State (Required by Meta Graph API!)
   const [sampleValues, setSampleValues] = useState({
@@ -123,6 +129,26 @@ export const Templates = () => {
       alert(err.message || 'Erro ao sincronizar templates com a Meta');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // Upload a sample media file (image/video/document) for the HEADER example,
+  // required by the Meta Graph API before a media-header template can be created.
+  const handleHeaderMediaUpload = async (file) => {
+    if (!file) return;
+    setHeaderMediaError('');
+    setUploadingHeaderMedia(true);
+    try {
+      const res = await ApiClient.uploadFile('/templates/media/upload', file);
+      setHeaderMediaHandle(res.handle);
+      setHeaderMediaFileName(file.name);
+      setHeaderMediaPreviewUrl(URL.createObjectURL(file));
+    } catch (err) {
+      setHeaderMediaHandle('');
+      setHeaderMediaFileName('');
+      setHeaderMediaError(err.message || 'Erro ao enviar arquivo de exemplo para a Meta');
+    } finally {
+      setUploadingHeaderMedia(false);
     }
   };
 
@@ -208,6 +234,17 @@ export const Templates = () => {
       const headerVars = [...headerText.matchAll(/\{\{(\d+)\}\}/g)];
       if (headerVars.length > 1) {
         errors.push('O cabeçalho de texto da Meta permite no máximo 1 variável ({{1}}).');
+      } else if (headerVars.length === 1 && headerVars[0][1] !== '1') {
+        errors.push('A variável do cabeçalho deve ser obrigatoriamente {{1}}.');
+      } else if (headerVars.length === 1 && !headerSampleValue.trim()) {
+        errors.push('Informe um valor de exemplo para a variável do cabeçalho ({{1}}), exigido pela Meta.');
+      }
+    }
+    if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType)) {
+      if (uploadingHeaderMedia) {
+        errors.push('Aguarde o upload do arquivo de exemplo do cabeçalho ser concluído.');
+      } else if (!headerMediaHandle) {
+        errors.push('Envie um arquivo de exemplo (imagem/vídeo/documento) para o cabeçalho — exigido pela Meta antes de criar o template.');
       }
     }
 
@@ -225,9 +262,19 @@ export const Templates = () => {
       }
     }
 
+    // 6. Meta Channel Requirement
+    if (submitDirectlyToMeta && !selectedChannelId) {
+      errors.push('Nenhum canal WhatsApp Meta oficial conectado/selecionado. Conecte um canal na aba Canais ou desmarque o envio direto para salvar como rascunho.');
+    }
+
+    // 7. Authentication Category Constraint
+    if (category === 'AUTHENTICATION') {
+      warnings.push('Templates de categoria AUTENTICAÇÃO seguem um formato restrito e pré-definido pela Meta (código de verificação): corpo, botões e rodapé customizados podem ser ignorados ou rejeitados na aprovação.');
+    }
+
     setValidationErrors(errors);
     setValidationWarnings(warnings);
-  }, [name, category, bodyText, footerText, headerType, headerText, hasButtons, buttonType, btnUrl, btnPhone]);
+  }, [name, category, bodyText, footerText, headerType, headerText, headerSampleValue, hasButtons, buttonType, btnUrl, btnPhone, submitDirectlyToMeta, selectedChannelId, headerMediaHandle, uploadingHeaderMedia]);
 
   // Extract variables list from body & header for samples
   const detectedVariables = [];
@@ -236,6 +283,10 @@ export const Templates = () => {
     const num = m[1];
     if (!detectedVariables.includes(num)) detectedVariables.push(num);
   });
+  const nextBodyVarNum = detectedVariables.length > 0
+    ? Math.max(...detectedVariables.map((n) => parseInt(n, 10))) + 1
+    : 1;
+  const headerHasVariable = headerType === 'TEXT' && /\{\{1\}\}/.test(headerText);
 
   // Generate WhatsApp Preview
   let previewRenderedBody = bodyText;
@@ -243,6 +294,9 @@ export const Templates = () => {
     const sample = sampleValues[num] || `{{${num}}}`;
     previewRenderedBody = previewRenderedBody.replaceAll(`{{${num}}}`, sample);
   });
+  const previewRenderedHeaderText = headerHasVariable
+    ? headerText.replaceAll('{{1}}', headerSampleValue || '{{1}}')
+    : headerText;
 
   // Handle Form Submit
   const handleCreateTemplate = async (e) => {
@@ -256,9 +310,17 @@ export const Templates = () => {
 
     // Header
     if (headerType === 'TEXT' && headerText.trim()) {
-      components.push({ type: 'HEADER', format: 'TEXT', text: headerText.trim() });
+      const headerComp = { type: 'HEADER', format: 'TEXT', text: headerText.trim() };
+      if (headerHasVariable && headerSampleValue.trim()) {
+        headerComp.example = { header_text: [headerSampleValue.trim()] };
+      }
+      components.push(headerComp);
     } else if (headerType !== 'NONE') {
-      components.push({ type: 'HEADER', format: headerType });
+      const headerComp = { type: 'HEADER', format: headerType };
+      if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && headerMediaHandle) {
+        headerComp.example = { header_handle: [headerMediaHandle] };
+      }
+      components.push(headerComp);
     }
 
     // Body with Examples
@@ -304,6 +366,17 @@ export const Templates = () => {
       setTemplates((prev) => [created, ...prev]);
       setShowBuilderModal(false);
       setName('');
+      setHeaderType('NONE');
+      setHeaderText('');
+      setHeaderSampleValue('');
+      setHeaderMediaHandle('');
+      setHeaderMediaFileName('');
+      setHeaderMediaPreviewUrl('');
+      setHeaderMediaError('');
+      setBodyText('Olá {{1}}, seu pedido número {{2}} foi confirmado com sucesso!');
+      setSampleValues({ 1: 'Lucas Ferreira', 2: 'PED-98231' });
+      setFooterText('WH Panel WhatsApp Oficial');
+      setHasButtons(false);
       alert(
         submitDirectlyToMeta
           ? 'Template validado e submetido para aprovação da Meta com sucesso! (Status: Pendente)'
@@ -460,7 +533,7 @@ export const Templates = () => {
         </div>
 
         <span className="text-xs text-slate-400 font-mono">
-          {filteredTemplates.length} templates listados
+          {filteredTemplates.length} {filteredTemplates.length === 1 ? 'template listado' : 'templates listados'}
         </span>
       </div>
 
@@ -662,25 +735,84 @@ export const Templates = () => {
                     <label className="font-semibold text-slate-300">Cabeçalho (Opcional)</label>
                     <select
                       value={headerType}
-                      onChange={(e) => setHeaderType(e.target.value)}
+                      onChange={(e) => {
+                        setHeaderType(e.target.value);
+                        setHeaderMediaHandle('');
+                        setHeaderMediaFileName('');
+                        setHeaderMediaPreviewUrl('');
+                        setHeaderMediaError('');
+                      }}
                       className="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-white text-[11px]"
                     >
                       <option value="NONE">Sem Cabeçalho</option>
                       <option value="TEXT">Texto (máx 60 caracteres)</option>
                       <option value="IMAGE">Imagem (Banner)</option>
+                      <option value="VIDEO">Vídeo</option>
                       <option value="DOCUMENT">Documento (PDF)</option>
                     </select>
                   </div>
 
                   {headerType === 'TEXT' && (
-                    <input
-                      type="text"
-                      placeholder="Ex: Confirmação de Agendamento"
-                      value={headerText}
-                      onChange={(e) => setHeaderText(e.target.value)}
-                      maxLength={60}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white focus:outline-none"
-                    />
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Ex: Confirmação de Agendamento ou {{1}}"
+                        value={headerText}
+                        onChange={(e) => setHeaderText(e.target.value)}
+                        maxLength={60}
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white focus:outline-none"
+                      />
+                      {headerHasVariable && (
+                        <div>
+                          <label className="text-[10px] text-slate-400 block mb-0.5 font-mono">
+                            Exemplo da variável {'{{1}}'} do cabeçalho:
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ex: Valor para {{1}}"
+                            value={headerSampleValue}
+                            onChange={(e) => setHeaderSampleValue(e.target.value)}
+                            className="w-full px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none"
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-slate-400 block font-mono">
+                        Arquivo de exemplo ({headerType === 'IMAGE' ? 'JPEG ou PNG' : headerType === 'VIDEO' ? 'MP4 ou 3GPP' : 'PDF'}) — exigido pela Meta:
+                      </label>
+                      <input
+                        type="file"
+                        accept={
+                          headerType === 'IMAGE'
+                            ? 'image/jpeg,image/png'
+                            : headerType === 'VIDEO'
+                            ? 'video/mp4,video/3gpp'
+                            : 'application/pdf'
+                        }
+                        onChange={(e) => handleHeaderMediaUpload(e.target.files?.[0])}
+                        className="w-full text-[11px] text-slate-300 file:mr-2 file:px-2.5 file:py-1 file:rounded-lg file:border-0 file:bg-slate-800 file:text-brand-300 file:text-[11px] file:font-semibold file:cursor-pointer cursor-pointer"
+                      />
+                      {uploadingHeaderMedia && (
+                        <p className="text-[10px] text-brand-300 flex items-center gap-1.5">
+                          <RefreshCw className="w-3 h-3 animate-spin" /> Enviando para a Meta...
+                        </p>
+                      )}
+                      {!uploadingHeaderMedia && headerMediaHandle && (
+                        <p className="text-[10px] text-emerald-400 flex items-center gap-1.5">
+                          <CheckCircle className="w-3 h-3" /> {headerMediaFileName} enviado com sucesso.
+                        </p>
+                      )}
+                      {!uploadingHeaderMedia && headerMediaError && (
+                        <p className="text-[10px] text-rose-400 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3 h-3" /> {headerMediaError}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -703,10 +835,10 @@ export const Templates = () => {
                     <span>Inserir Variável:</span>
                     <button
                       type="button"
-                      onClick={() => setBodyText((prev) => `${prev} {{${detectedVariables.length + 1}}}`)}
+                      onClick={() => setBodyText((prev) => `${prev} {{${nextBodyVarNum}}}`)}
                       className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-brand-300 font-mono font-bold"
                     >
-                      + {`{{${detectedVariables.length + 1}}}`}
+                      + {`{{${nextBodyVarNum}}}`}
                     </button>
                   </div>
                 </div>
@@ -855,12 +987,31 @@ export const Templates = () => {
                     {/* Header preview */}
                     {headerType === 'TEXT' && headerText && (
                       <h4 className="font-bold text-xs text-white border-b border-white/10 pb-1">
-                        {headerText}
+                        {previewRenderedHeaderText}
                       </h4>
                     )}
                     {headerType === 'IMAGE' && (
-                      <div className="w-full h-28 rounded-xl bg-slate-800 flex items-center justify-center text-slate-500">
-                        <Image className="w-8 h-8 text-slate-400" />
+                      headerMediaPreviewUrl ? (
+                        <img src={headerMediaPreviewUrl} alt="Exemplo de cabeçalho" className="w-full h-28 rounded-xl object-cover" />
+                      ) : (
+                        <div className="w-full h-28 rounded-xl bg-slate-800 flex items-center justify-center text-slate-500">
+                          <Image className="w-8 h-8 text-slate-400" />
+                        </div>
+                      )
+                    )}
+                    {headerType === 'VIDEO' && (
+                      headerMediaPreviewUrl ? (
+                        <video src={headerMediaPreviewUrl} className="w-full h-28 rounded-xl object-cover" controls />
+                      ) : (
+                        <div className="w-full h-28 rounded-xl bg-slate-800 flex items-center justify-center text-slate-500">
+                          <Video className="w-8 h-8 text-slate-400" />
+                        </div>
+                      )
+                    )}
+                    {headerType === 'DOCUMENT' && (
+                      <div className="w-full h-16 rounded-xl bg-slate-800 flex items-center justify-center gap-2 text-slate-500">
+                        <FileBox className="w-6 h-6 text-slate-400" />
+                        <span className="text-[10px] text-slate-400">{headerMediaFileName || 'documento.pdf'}</span>
                       </div>
                     )}
 

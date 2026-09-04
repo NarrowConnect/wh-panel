@@ -33,13 +33,14 @@ export const Channels = () => {
   const [channelName, setChannelName] = useState('');
   const [copiedId, setCopiedId] = useState(null);
 
-  // Meta Official Form Fields (Narrow App)
+  // Meta Official Form Fields
   const [phoneNumber, setPhoneNumber] = useState('');
   const [metaConnecting, setMetaConnecting] = useState(false);
   const [metaConfig, setMetaConfig] = useState(null);
 
   // WAHA (WhatsApp Non-Official) State
   const [wahaStatus, setWahaStatus] = useState(null);
+  const [wahaSessionStatuses, setWahaSessionStatuses] = useState({});
   const [wahaSessionName, setWahaSessionName] = useState('');
   const [wahaQrCode, setWahaQrCode] = useState('');
   const [wahaSessionState, setWahaSessionState] = useState('STARTING');
@@ -61,6 +62,26 @@ export const Channels = () => {
       if (chanData.status === 'fulfilled' && chanData.value) {
         const list = Array.isArray(chanData.value) ? chanData.value : (chanData.value?.channels || []);
         setChannels(list);
+
+        // Fetch real per-session WAHA connection state for each QR channel
+        const qrChannels = list.filter((c) => c.type === 'whatsapp_qr');
+        if (qrChannels.length > 0) {
+          const sessionNames = qrChannels.map((c) => {
+            try {
+              return c.config_json ? (JSON.parse(c.config_json)?.session_name || 'session_01') : (c.session_name || 'session_01');
+            } catch {
+              return c.session_name || 'session_01';
+            }
+          });
+          const statusResults = await Promise.allSettled(
+            sessionNames.map((sn) => ApiClient.get(`/channels/waha/sessions/${sn}/status`))
+          );
+          const statusMap = {};
+          statusResults.forEach((r, idx) => {
+            statusMap[sessionNames[idx]] = r.status === 'fulfilled' ? (r.value?.status || 'UNKNOWN') : 'UNKNOWN';
+          });
+          setWahaSessionStatuses(statusMap);
+        }
       } else {
         setChannels([]);
       }
@@ -93,7 +114,7 @@ export const Channels = () => {
     const handleMetaMessage = (event) => {
       try {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (data && (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'FINISH')) {
+        if (data && (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'FINISH' || data.event === 'FINISH_ONLY')) {
           if (data.data) {
             metaEmbeddedDataRef.current = {
               waba_id: data.data.waba_id || '',
@@ -160,7 +181,7 @@ export const Channels = () => {
 
   // Trigger Meta Official Embedded Signup Popup
   const handleMetaEmbeddedSignup = () => {
-    const configId = metaConfig?.config_id || '894644480139460';
+    const configId = metaConfig?.config_id;
     const appId = metaConfig?.app_id;
 
     if (!window.FB) {
@@ -170,6 +191,12 @@ export const Channels = () => {
 
     if (!appId) {
       alert('META_APP_ID não está configurado no servidor. Verifique o arquivo .env no backend.');
+      console.error('[Meta Embedded Signup] metaConfig:', metaConfig);
+      return;
+    }
+
+    if (!configId) {
+      alert('META_CONFIG_ID (Embedded Signup) não está configurado no servidor. Verifique o arquivo .env no backend.');
       console.error('[Meta Embedded Signup] metaConfig:', metaConfig);
       return;
     }
@@ -189,7 +216,7 @@ export const Channels = () => {
           if (response && response.authResponse && response.authResponse.code) {
             ApiClient.post('/channels/meta/embedded-signup', {
               code: response.authResponse.code,
-              channel_name: channelName || 'WhatsApp Oficial Narrow',
+              channel_name: channelName || 'WhatsApp Oficial',
               waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
               phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
             })
@@ -200,7 +227,7 @@ export const Channels = () => {
                 setShowConnectModal(false);
                 setChannelName('');
                 fetchChannels();
-                alert('🎉 WhatsApp conectado com sucesso via Narrow Connect!');
+                alert('🎉 WhatsApp conectado com sucesso!');
               })
               .catch((err) => {
                 alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
@@ -270,6 +297,13 @@ export const Channels = () => {
     qrPollIntervalRef.current = setInterval(poll, 4000);
   };
 
+  // Normalizes to E.164-ish format required for WhatsApp/Meta messaging (digits only, with leading +)
+  const normalizePhone = (raw) => {
+    const digits = (raw || '').replace(/[^\d]/g, '');
+    if (digits.length < 8 || digits.length > 15) return null;
+    return `+${digits}`;
+  };
+
   const handleCreateChannel = async (e) => {
     e.preventDefault();
     if (channelType === 'whatsapp_qr') {
@@ -291,13 +325,22 @@ export const Channels = () => {
       return;
     }
 
+    let normalizedPhone = '';
+    if (channelType === 'whatsapp_meta' && phoneNumber.trim()) {
+      normalizedPhone = normalizePhone(phoneNumber);
+      if (!normalizedPhone) {
+        alert('Número de WhatsApp inválido. Informe o número completo com código do país e DDD (ex: +55 11 99999-8888).');
+        return;
+      }
+    }
+
     try {
       const payload = {
-        name: channelName || (channelType === 'whatsapp_meta' ? 'WhatsApp Meta Oficial (Narrow App)' : 'Webchat Widget'),
+        name: channelName || (channelType === 'whatsapp_meta' ? 'WhatsApp Meta Oficial' : 'Webchat Widget'),
         type: channelType,
         config: {
-          phone_number: phoneNumber,
-          app_managed: 'narrow_connect',
+          phone_number: normalizedPhone || phoneNumber,
+          app_managed: 'wh_panel',
         },
       };
 
@@ -307,7 +350,7 @@ export const Channels = () => {
         name: payload.name,
         type: channelType,
         status: 'active',
-        phone_number: phoneNumber,
+        phone_number: normalizedPhone || phoneNumber,
         created_at: 'Hoje',
       };
 
@@ -360,7 +403,7 @@ export const Channels = () => {
               <span>Canais de Atendimento & Conexões Oficiais</span>
             </h2>
             <p className="text-xs text-slate-400">
-              WhatsApp Oficial Meta (Narrow App) e WhatsApp VPS WAHA
+              WhatsApp Oficial Meta e WhatsApp VPS WAHA
             </p>
           </div>
         </div>
@@ -370,7 +413,7 @@ export const Channels = () => {
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#12141c] border border-white/[0.06] text-xs">
             <span className={`w-2 h-2 rounded-full ${wahaStatus?.status === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
             <span className="text-slate-300 font-bold">Servidor:</span>
-            <span className="text-purple-400 font-mono text-[11px] font-bold">{wahaStatus?.status === 'connected' ? 'Online' : 'Conectado'}</span>
+            <span className="text-purple-400 font-mono text-[11px] font-bold">{wahaStatus?.status === 'connected' ? 'Online' : 'Offline'}</span>
           </div>
 
           <button
@@ -383,16 +426,16 @@ export const Channels = () => {
         </div>
       </div>
 
-      {/* Global Narrow Meta App Info Banner */}
+      {/* Global Meta App Info Banner */}
       <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-purple-950/20 to-slate-900 border border-blue-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="font-bold text-white text-sm">Aplicativo Meta Oficial da Narrow</h4>
+            <h4 className="font-bold text-white text-sm">Aplicativo Meta Oficial</h4>
             <p className="text-slate-300 text-[11px]">
-              Validação automática de webhooks e envio oficial Cloud API pelo App Narrow via variáveis de ambiente (.env)
+              Validação automática de webhooks e envio oficial Cloud API via variáveis de ambiente (.env)
             </p>
           </div>
         </div>
@@ -419,7 +462,7 @@ export const Channels = () => {
           </div>
           <h4 className="text-sm font-bold text-white">Nenhum canal conectado ainda</h4>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Conecte seu WhatsApp Oficial com 1 Clique através do App da Narrow Connect ou inicie uma sessão WAHA.
+            Conecte seu WhatsApp Oficial com 1 Clique ou inicie uma sessão WAHA.
           </p>
           <button
             onClick={() => { setShowConnectModal(true); setScanningQr(false); }}
@@ -459,7 +502,7 @@ export const Channels = () => {
                     <div>
                       <h4 className="text-sm font-bold text-white">{chan.name}</h4>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        {isMeta ? 'Meta Cloud API (Narrow)' : isQR ? 'WAHA Servidor VPS' : 'Widget Web'}
+                        {isMeta ? 'Meta Cloud API' : isQR ? 'WAHA Servidor VPS' : 'Widget Web'}
                       </span>
                     </div>
                   </div>
@@ -477,21 +520,32 @@ export const Channels = () => {
                     </div>
                     <div className="flex justify-between text-slate-400">
                       <span>Validação:</span>
-                      <strong className="text-blue-300">App Narrow (.env)</strong>
+                      <strong className="text-blue-300">App Meta (.env)</strong>
                     </div>
                   </div>
                 )}
 
-                {isQR && (
-                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-1.5">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Sessão WAHA:</span>
-                      <strong className="text-amber-300 font-mono">{sessionName}</strong>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Estado:</span>
-                      <strong className="text-emerald-400">Conectado (WORKING)</strong>
-                    </div>
+                {isQR && (() => {
+                  const sessionState = wahaSessionStatuses[sessionName] || 'UNKNOWN';
+                  const stateLabels = {
+                    WORKING: 'Conectado (WORKING)',
+                    STARTING: 'Iniciando sessão...',
+                    SCAN_QR_CODE: 'Aguardando leitura do QR Code',
+                    FAILED: 'Falha na conexão',
+                    STOPPED: 'Sessão parada',
+                    UNKNOWN: 'Verificando status...',
+                  };
+                  const stateColor = sessionState === 'WORKING' ? 'text-emerald-400' : sessionState === 'FAILED' ? 'text-rose-400' : 'text-amber-400';
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-1.5">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Sessão WAHA:</span>
+                        <strong className="text-amber-300 font-mono">{sessionName}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>Estado:</span>
+                        <strong className={stateColor}>{stateLabels[sessionState] || sessionState}</strong>
+                      </div>
 
                     <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
                       <button
@@ -510,8 +564,9 @@ export const Channels = () => {
                         <LogOut className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Webhook URL Endpoint Box */}
@@ -548,7 +603,7 @@ export const Channels = () => {
             {/* Type Selector Tabs */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'whatsapp_meta', label: 'Meta Oficial (Narrow App)', icon: Radio },
+                { id: 'whatsapp_meta', label: 'Meta Oficial', icon: Radio },
                 { id: 'whatsapp_qr', label: 'WhatsApp Não-Oficial (WAHA)', icon: QrCode },
                 { id: 'webchat', label: 'Widget Webchat', icon: Globe },
               ].map((t) => (
@@ -591,7 +646,7 @@ export const Channels = () => {
                           <Sparkles className="w-4 h-4" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-white">Conexão Automática Oficial Narrow</h4>
+                          <h4 className="text-xs font-bold text-white">Conexão Automática Oficial</h4>
                           <p className="text-[11px] text-slate-400">
                             Cadastre seu número ou vincule sua conta do WhatsApp Business em poucos segundos
                           </p>
@@ -612,13 +667,13 @@ export const Channels = () => {
                         ) : (
                           <>
                             <Radio className="w-4 h-4" />
-                            <span>Conectar WhatsApp com 1 Clique (Oficial Meta)</span>
+                            <span>Conectar WhatsApp com 1 Clique (Oficial)</span>
                           </>
                         )}
                       </button>
 
                       <p className="text-[10px] text-slate-400 text-center">
-                        ✓ Sem configurações complexas: o App da Narrow Connect gerencia tokens, webhooks e entrega 24/7.
+                        ✓ Sem configurações complexas: o App Meta gerencia tokens, webhooks e entrega 24/7.
                       </p>
                     </div>
 

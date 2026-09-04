@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -46,22 +47,20 @@ func NewClient(cfg Config) *Client {
 	if apiVersion == "" {
 		apiVersion = "v20.0"
 	}
-	verifyToken := cfg.VerifyToken
-	if verifyToken == "" {
-		verifyToken = "narrow_wh_verify_secret_2026"
-	}
-	configID := cfg.ConfigID
-	if configID == "" {
-		configID = "894644480139460"
-	}
 
+	// NOTE: configID and verifyToken are intentionally left empty when not
+	// provided via environment configuration. Previous versions of this
+	// client fell back to hardcoded values tied to the original developer's
+	// own Meta App (Embedded Signup config + webhook verify secret); reusing
+	// those for any other tenant/deployment would silently misconfigure or
+	// break the Meta connection instead of surfacing a clear setup error.
 	return &Client{
 		appID:       cfg.AppID,
 		appSecret:   cfg.AppSecret,
-		verifyToken: verifyToken,
+		verifyToken: cfg.VerifyToken,
 		apiVersion:  apiVersion,
 		accessToken: cfg.AccessToken,
-		configID:    configID,
+		configID:    cfg.ConfigID,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -92,8 +91,10 @@ func (c *Client) VerifyWebhookToken(token string) bool {
 // VerifySignature validates Meta's X-Hub-Signature-256 header using the Narrow App Secret
 func (c *Client) VerifySignature(rawPayload []byte, signatureHeader string) bool {
 	if c.appSecret == "" {
-		// If App Secret is not configured yet in .env, accept for initial setup
-		return true
+		// Fail closed: without an App Secret there is no way to verify the
+		// payload actually came from Meta, so unsigned/unverifiable webhook
+		// deliveries must be rejected rather than silently trusted.
+		return false
 	}
 	if signatureHeader == "" {
 		return false
@@ -220,6 +221,66 @@ func (c *Client) SubmitTemplate(ctx context.Context, wabaID, accessToken, name, 
 	return result.ID, nil
 }
 
+// MetaTemplateResult represents one message template as returned by the Meta Graph API,
+// including its REAL current approval status (APPROVED, PENDING, REJECTED).
+type MetaTemplateResult struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Category   string          `json:"category"`
+	Language   string          `json:"language"`
+	Status     string          `json:"status"`
+	Components json.RawMessage `json:"components"`
+}
+
+// ListTemplates fetches every message template currently registered on the given WABA,
+// with Meta's own approval status — used to sync real template state instead of
+// fabricating local "approved" records.
+func (c *Client) ListTemplates(ctx context.Context, wabaID, accessToken string) ([]MetaTemplateResult, error) {
+	if accessToken == "" {
+		accessToken = c.accessToken
+	}
+	if wabaID == "" {
+		return nil, fmt.Errorf("waba_id é obrigatório para listar templates")
+	}
+	if accessToken == "" {
+		return nil, fmt.Errorf("meta access token é obrigatório")
+	}
+
+	var all []MetaTemplateResult
+	nextURL := fmt.Sprintf("https://graph.facebook.com/%s/%s/message_templates?limit=100&access_token=%s",
+		c.apiVersion, wabaID, url.QueryEscape(accessToken))
+
+	for nextURL != "" {
+		req, err := http.NewRequestWithContext(ctx, "GET", nextURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao consultar templates na Meta: %w", err)
+		}
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("erro ao listar templates na Meta (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var page struct {
+			Data   []MetaTemplateResult `json:"data"`
+			Paging struct {
+				Next string `json:"next"`
+			} `json:"paging"`
+		}
+		if err := json.Unmarshal(bodyBytes, &page); err != nil {
+			return nil, fmt.Errorf("resposta inesperada ao listar templates na Meta: %s", string(bodyBytes))
+		}
+		all = append(all, page.Data...)
+		nextURL = page.Paging.Next
+	}
+
+	return all, nil
+}
+
 // ExchangeEmbeddedSignupCode exchanges the OAuth authorization code returned by the Embedded Signup popup
 // for a long-lived user access token, queries the associated WABA ID and Phone Number ID, and registers webhooks.
 func (c *Client) ExchangeEmbeddedSignupCode(ctx context.Context, code string) (*EmbeddedSignupResult, error) {
@@ -337,5 +398,72 @@ func (c *Client) ExchangeEmbeddedSignupCode(ctx context.Context, code string) (*
 	}
 
 	return res, nil
+}
+
+// UploadMedia uploads a sample media file (image/video/document) using Meta's
+// Resumable Upload API and returns the resulting file handle. This handle is
+// required as `example.header_handle` when creating a message template whose
+// HEADER component format is IMAGE, VIDEO or DOCUMENT.
+// Reference: https://developers.facebook.com/docs/graph-api/guides/upload
+func (c *Client) UploadMedia(ctx context.Context, fileBytes []byte, mimeType string) (string, error) {
+	if c.appID == "" || c.appSecret == "" {
+		return "", fmt.Errorf("meta APP_ID e APP_SECRET precisam estar configurados no servidor para enviar mídia de exemplo")
+	}
+	appAccessToken := fmt.Sprintf("%s|%s", c.appID, c.appSecret)
+
+	// 1. Start an upload session
+	startURL := fmt.Sprintf("https://graph.facebook.com/%s/%s/uploads?file_length=%d&file_type=%s&access_token=%s",
+		c.apiVersion, c.appID, len(fileBytes), url.QueryEscape(mimeType), url.QueryEscape(appAccessToken))
+
+	startReq, err := http.NewRequestWithContext(ctx, "POST", startURL, nil)
+	if err != nil {
+		return "", err
+	}
+	startResp, err := c.httpClient.Do(startReq)
+	if err != nil {
+		return "", fmt.Errorf("falha ao iniciar sessão de upload na Meta: %w", err)
+	}
+	defer startResp.Body.Close()
+
+	startBodyBytes, _ := io.ReadAll(startResp.Body)
+	if startResp.StatusCode >= 400 {
+		return "", fmt.Errorf("erro ao iniciar upload na Meta (status %d): %s", startResp.StatusCode, string(startBodyBytes))
+	}
+
+	var sessionResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(startBodyBytes, &sessionResp); err != nil || sessionResp.ID == "" {
+		return "", fmt.Errorf("resposta inesperada ao iniciar upload na Meta: %s", string(startBodyBytes))
+	}
+
+	// 2. Upload the file bytes to the session
+	uploadURL := fmt.Sprintf("https://graph.facebook.com/%s/%s", c.apiVersion, sessionResp.ID)
+	uploadReq, err := http.NewRequestWithContext(ctx, "POST", uploadURL, bytes.NewReader(fileBytes))
+	if err != nil {
+		return "", err
+	}
+	uploadReq.Header.Set("Authorization", fmt.Sprintf("OAuth %s", appAccessToken))
+	uploadReq.Header.Set("file_offset", "0")
+
+	uploadResp, err := c.httpClient.Do(uploadReq)
+	if err != nil {
+		return "", fmt.Errorf("falha ao enviar bytes do arquivo para a Meta: %w", err)
+	}
+	defer uploadResp.Body.Close()
+
+	uploadBodyBytes, _ := io.ReadAll(uploadResp.Body)
+	if uploadResp.StatusCode >= 400 {
+		return "", fmt.Errorf("erro no upload de mídia da Meta (status %d): %s", uploadResp.StatusCode, string(uploadBodyBytes))
+	}
+
+	var handleResp struct {
+		H string `json:"h"`
+	}
+	if err := json.Unmarshal(uploadBodyBytes, &handleResp); err != nil || handleResp.H == "" {
+		return "", fmt.Errorf("resposta inesperada no upload de mídia da Meta: %s", string(uploadBodyBytes))
+	}
+
+	return handleResp.H, nil
 }
 

@@ -29,7 +29,7 @@ const MainLayout = () => {
     return (
       <div className="min-h-screen bg-[#070b14] flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-3 border-brand-500/30 border-t-brand-500 rounded-full animate-spin mb-4" />
-        <p className="text-xs text-slate-400 font-medium">Carregando WH - Panel...</p>
+        <p className="text-xs text-slate-400 font-medium">Carregando WH Panel...</p>
       </div>
     );
   }
@@ -101,7 +101,7 @@ const MainLayout = () => {
 
         {/* Main Body */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <Header activeTitle={tabTitleMap[activeTab] || 'WH - Panel'} />
+          <Header activeTitle={tabTitleMap[activeTab] || 'WH Panel'} onNavigate={setActiveTab} />
           <main className="flex-1 overflow-hidden bg-[#070b14]">
             {renderActiveTab()}
           </main>

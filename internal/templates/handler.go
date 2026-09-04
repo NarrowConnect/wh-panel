@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"strconv"
@@ -40,6 +41,7 @@ func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 	tmpl.Get("/", h.ListTemplates)
 	tmpl.Post("/", tenant.RequireRole("admin", "supervisor"), h.CreateTemplate)
 	tmpl.Post("/sync", tenant.RequireRole("admin", "supervisor"), h.SyncMetaTemplates)
+	tmpl.Post("/media/upload", tenant.RequireRole("admin", "supervisor"), h.UploadTemplateMedia)
 	tmpl.Get("/:id", h.GetTemplate)
 	tmpl.Put("/:id", tenant.RequireRole("admin", "supervisor"), h.UpdateTemplate)
 	tmpl.Delete("/:id", tenant.RequireRole("admin"), h.DeleteTemplate)
@@ -110,7 +112,12 @@ func (h *Handler) GetTemplate(c *fiber.Ctx) error {
 	return c.JSON(t)
 }
 
-// SyncMetaTemplates forces fetching / synchronizing templates with Meta Cloud API for official channels
+// SyncMetaTemplates synchronizes templates with the Meta Cloud API for official channels.
+// When a real Meta channel with valid WABA credentials is connected, this fetches the
+// actual templates and their real approval status directly from Meta's Graph API.
+// Otherwise it falls back to seeding a couple of local DRAFT starter templates (never
+// fabricating "approved" status or a fake meta_template_id, since those don't exist on
+// Meta's servers and would silently fail when actually used to send a message).
 func (h *Handler) SyncMetaTemplates(c *fiber.Ctx) error {
 	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
 	companyID, _ := uuid.Parse(companyIDStr)
@@ -125,26 +132,63 @@ func (h *Handler) SyncMetaTemplates(c *fiber.Ctx) error {
 		channelID = &cid
 	}
 
-	// 2. Standard Meta Approved Templates to guarantee operational readiness
-	preapprovedMetaTemplates := []struct {
+	wabaID, accessToken := h.resolveMetaCredentials(c.UserContext(), companyID, channelID)
+
+	// 2. Real sync path: an official channel with valid WABA credentials is connected
+	if h.metaClient != nil && wabaID != "" {
+		metaTemplates, err := h.metaClient.ListTemplates(c.UserContext(), wabaID, accessToken)
+		if err != nil {
+			log.Printf("[MetaTemplates] Real sync failed: %v", err)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+				"error": "Falha ao consultar templates na Meta: " + err.Error(),
+			})
+		}
+
+		syncedCount := 0
+		for _, mt := range metaTemplates {
+			status := strings.ToLower(mt.Status)
+			var existingID uuid.UUID
+			errQ := h.db.GetContext(c.UserContext(), &existingID, `SELECT id FROM templates WHERE company_id = $1 AND name = $2 AND language = $3`, companyID, mt.Name, mt.Language)
+			if errQ != nil {
+				tmplID := uuid.New()
+				q := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status, meta_template_id)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+				_, _ = h.db.ExecContext(c.UserContext(), q, tmplID, companyID, channelID, mt.Name, mt.Category, mt.Language, string(mt.Components), status, mt.ID)
+			} else {
+				q := `UPDATE templates SET status = $1, meta_template_id = $2, components_json = $3, category = $4, channel_id = COALESCE($5, channel_id), updated_at = CURRENT_TIMESTAMP WHERE id = $6`
+				_, _ = h.db.ExecContext(c.UserContext(), q, status, mt.ID, string(mt.Components), mt.Category, channelID, existingID)
+			}
+			syncedCount++
+		}
+
+		var allTemplates []models.Template
+		_ = h.db.SelectContext(c.UserContext(), &allTemplates, `SELECT id, company_id, channel_id, name, category, language, components_json, status, meta_template_id, created_at, updated_at FROM templates WHERE company_id = $1 ORDER BY created_at DESC`, companyID)
+
+		return c.JSON(fiber.Map{
+			"message":          fmt.Sprintf("Sincronização real com a Meta concluída! %d templates encontrados na sua conta WhatsApp Business.", syncedCount),
+			"synced_count":     syncedCount,
+			"total_templates":  len(allTemplates),
+			"templates":        allTemplates,
+			"official_channel": true,
+		})
+	}
+
+	// 3. Fallback: no Meta channel/credentials configured — seed local DRAFT examples only
+	starterTemplates := []struct {
 		Name       string
 		Category   string
 		Language   string
 		Components []models.TemplateComponent
-		Status     string
-		MetaID     string
 	}{
 		{
 			Name:     "boas_vindas_atendimento",
 			Category: "UTILITY",
 			Language: "pt_BR",
 			Components: []models.TemplateComponent{
-				{Type: "HEADER", Format: "TEXT", Text: "Atendimento Narrow Connect"},
+				{Type: "HEADER", Format: "TEXT", Text: "Atendimento"},
 				{Type: "BODY", Text: "Olá {{1}}, obrigado pelo contato! Seu protocolo é {{2}}. Um de nossos especialistas entrará em contato em instantes.", Example: map[string]interface{}{"body_text": [][]string{{"Lucas", "AT-2026-99"}}}},
-				{Type: "FOOTER", Text: "Narrow Connect Omnichannel"},
+				{Type: "FOOTER", Text: "Atendimento Omnichannel"},
 			},
-			Status: "approved",
-			MetaID: "meta_tmpl_bv_01",
 		},
 		{
 			Name:     "confirmacao_agendamento",
@@ -156,68 +200,86 @@ func (h *Handler) SyncMetaTemplates(c *fiber.Ctx) error {
 				{Type: "FOOTER", Text: "Equipe Comercial"},
 				{Type: "BUTTONS", Buttons: []models.TemplateButton{{Type: "QUICK_REPLY", Text: "Confirmar Presença"}, {Type: "QUICK_REPLY", Text: "Reagendar"}}},
 			},
-			Status: "approved",
-			MetaID: "meta_tmpl_ag_02",
-		},
-		{
-			Name:     "oferta_exclusiva_planos",
-			Category: "MARKETING",
-			Language: "pt_BR",
-			Components: []models.TemplateComponent{
-				{Type: "HEADER", Format: "IMAGE", Text: ""},
-				{Type: "BODY", Text: "Olá {{1}}! Temos uma condição especial com {{2}} de desconto na contratação da API Oficial do WhatsApp Meta.", Example: map[string]interface{}{"body_text": [][]string{{"Carlos", "30%"}}}},
-				{Type: "FOOTER", Text: "Válido até o fim do mês"},
-				{Type: "BUTTONS", Buttons: []models.TemplateButton{{Type: "URL", Text: "Acessar Proposta", URL: "https://narrowconnect.com.br/oferta"}}},
-			},
-			Status: "approved",
-			MetaID: "meta_tmpl_mk_03",
-		},
-		{
-			Name:     "codigo_seguranca_2fa",
-			Category: "AUTHENTICATION",
-			Language: "pt_BR",
-			Components: []models.TemplateComponent{
-				{Type: "BODY", Text: "Seu código de segurança para autenticação é {{1}}. Não compartilhe este código com ninguém.", Example: map[string]interface{}{"body_text": [][]string{{"849201"}}}},
-				{Type: "FOOTER", Text: "Segurança WH - Panel"},
-			},
-			Status: "approved",
-			MetaID: "meta_tmpl_auth_04",
 		},
 	}
 
 	syncedCount := 0
-	for _, t := range preapprovedMetaTemplates {
+	for _, t := range starterTemplates {
 		compBytes, _ := json.Marshal(t.Components)
 
-		// Check if exists
 		var existingID uuid.UUID
-		err := h.db.GetContext(c.UserContext(), &existingID, `SELECT id FROM templates WHERE company_id = $1 AND name = $2 AND language = $3`, companyID, t.Name, t.Language)
-		if err != nil {
-			// Insert
+		errQ := h.db.GetContext(c.UserContext(), &existingID, `SELECT id FROM templates WHERE company_id = $1 AND name = $2 AND language = $3`, companyID, t.Name, t.Language)
+		if errQ != nil {
 			tmplID := uuid.New()
-			q := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status, meta_template_id) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-			_, _ = h.db.ExecContext(c.UserContext(), q, tmplID, companyID, channelID, t.Name, t.Category, t.Language, string(compBytes), t.Status, t.MetaID)
-			syncedCount++
-		} else {
-			// Update status
-			q := `UPDATE templates SET status = $1, meta_template_id = $2, channel_id = COALESCE($3, channel_id), updated_at = CURRENT_TIMESTAMP WHERE id = $4`
-			_, _ = h.db.ExecContext(c.UserContext(), q, t.Status, t.MetaID, channelID, existingID)
+			q := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')`
+			_, _ = h.db.ExecContext(c.UserContext(), q, tmplID, companyID, channelID, t.Name, t.Category, t.Language, string(compBytes))
 			syncedCount++
 		}
 	}
 
-	// Fetch all synced templates
 	var allTemplates []models.Template
 	_ = h.db.SelectContext(c.UserContext(), &allTemplates, `SELECT id, company_id, channel_id, name, category, language, components_json, status, meta_template_id, created_at, updated_at FROM templates WHERE company_id = $1 ORDER BY created_at DESC`, companyID)
 
 	return c.JSON(fiber.Map{
-		"message":          fmt.Sprintf("Sincronização com Meta concluída! %d templates oficiais identificados.", len(allTemplates)),
+		"message":          "Nenhum canal WhatsApp Meta oficial conectado. Foram criados modelos de exemplo como RASCUNHO — conecte um canal oficial na aba Canais e sincronize novamente para importar seus templates realmente aprovados pela Meta.",
 		"synced_count":     syncedCount,
 		"total_templates":  len(allTemplates),
 		"templates":        allTemplates,
 		"official_channel": len(channels) > 0,
 	})
+}
+
+// UploadTemplateMedia uploads a sample media file (image/video/document) to Meta via the
+// Resumable Upload API and returns the resulting handle to be used as the HEADER
+// component's example.header_handle when creating/submitting a message template.
+func (h *Handler) UploadTemplateMedia(c *fiber.Ctx) error {
+	if h.metaClient == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Integração com a Meta não está configurada no servidor"})
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Arquivo 'file' é obrigatório"})
+	}
+
+	// Meta's own limits for template header sample media (images/videos/documents)
+	if file.Size > 16<<20 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Arquivo excede o limite máximo de 16MB aceito pela Meta para exemplos de mídia"})
+	}
+
+	allowedMime := map[string]bool{
+		"image/jpeg":      true,
+		"image/png":       true,
+		"video/mp4":       true,
+		"video/3gpp":      true,
+		"application/pdf": true,
+	}
+	mimeType := file.Header.Get("Content-Type")
+	if !allowedMime[mimeType] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": fmt.Sprintf("Tipo de arquivo '%s' não é aceito pela Meta para cabeçalhos de template (use JPEG/PNG para imagem, MP4/3GPP para vídeo ou PDF para documento)", mimeType),
+		})
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Falha ao abrir arquivo"})
+	}
+	defer src.Close()
+
+	fileBytes, err := io.ReadAll(src)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Falha ao ler arquivo"})
+	}
+
+	handle, err := h.metaClient.UploadMedia(c.UserContext(), fileBytes, mimeType)
+	if err != nil {
+		log.Printf("[Templates] Meta media upload failed: %v", err)
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "Falha ao enviar arquivo de exemplo para a Meta: " + err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"handle": handle, "filename": file.Filename, "mime_type": mimeType})
 }
 
 // ValidateMetaTemplateRules strictly checks Meta WhatsApp Business API constraints
@@ -298,7 +360,8 @@ func ValidateMetaTemplateRules(name, category, language string, components []mod
 			}
 
 		case "HEADER":
-			if strings.ToUpper(comp.Format) == "TEXT" {
+			format := strings.ToUpper(comp.Format)
+			if format == "TEXT" {
 				if len(comp.Text) > 60 {
 					return errors.New("O cabeçalho de texto (HEADER) excede o limite máximo da Meta de 60 caracteres.")
 				}
@@ -306,6 +369,12 @@ func ValidateMetaTemplateRules(name, category, language string, components []mod
 				varMatches := regexp.MustCompile(`\{\{\d+\}\}`).FindAllString(comp.Text, -1)
 				if len(varMatches) > 1 {
 					return errors.New("O cabeçalho de texto da Meta permite no máximo 1 variável ({{1}}).")
+				}
+			}
+			if format == "IMAGE" || format == "VIDEO" || format == "DOCUMENT" {
+				handles, _ := comp.Example["header_handle"].([]interface{})
+				if len(handles) == 0 {
+					return errors.New("Cabeçalhos de mídia (Imagem/Vídeo/Documento) exigem o upload de um arquivo de exemplo antes de criar o template.")
 				}
 			}
 

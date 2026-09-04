@@ -77,9 +77,9 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
             <div className="flex flex-col truncate">
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-sm tracking-tight text-white font-sans">
-                  Narrow<span className="text-purple-400">®</span>
+                  WH Panel
                 </span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/15 text-purple-300 font-bold uppercase border border-purple-500/20">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/15 text-purple-300 font-bold uppercase border border-purple-500/20">
                   PRO
                 </span>
               </div>
@@ -271,7 +271,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
                 <Sparkles className="w-3.5 h-3.5" />
               </div>
               <div>
-                <h5 className="text-xs font-bold text-white leading-none">Narrow Super PRO</h5>
+                <h5 className="text-xs font-bold text-white leading-none">WH Panel Super PRO</h5>
                 <p className="text-[10px] text-slate-400 mt-0.5">Disparos & IA Ilimitados</p>
               </div>
             </div>
