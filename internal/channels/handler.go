@@ -188,16 +188,20 @@ func (h *Handler) CreateChannel(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(newChannel)
 }
 
+// seedMetaTemplatesForCompany creates a couple of local DRAFT starter templates for a
+// newly connected WhatsApp channel, purely as editing examples. They are intentionally
+// NOT marked as "approved" and carry no meta_template_id — they do not exist on Meta's
+// servers and must be submitted (Templates > Sincronizar/Submeter) for real approval
+// before they can be used to send messages.
 func (h *Handler) seedMetaTemplatesForCompany(ctx context.Context, companyID, channelID uuid.UUID) {
 	var count int
 	_ = h.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM templates WHERE company_id = $1`, companyID)
 	if count == 0 {
-		q := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status, meta_template_id)
-		VALUES 
-		($1, $2, $3, 'boas_vindas_atendimento', 'UTILITY', 'pt_BR', '[{"type":"HEADER","format":"TEXT","text":"Atendimento Narrow Connect"},{"type":"BODY","text":"Olá {{1}}, obrigado pelo contato! Seu protocolo é {{2}}. Um de nossos especialistas entrará em contato em instantes.","example":{"body_text":[["Lucas","AT-2026-99"]]}},{"type":"FOOTER","text":"Narrow Connect Omnichannel"}]', 'approved', 'meta_tmpl_bv_01'),
-		($4, $2, $3, 'confirmacao_agendamento', 'UTILITY', 'pt_BR', '[{"type":"HEADER","format":"TEXT","text":"Confirmação de Reunião"},{"type":"BODY","text":"Olá {{1}}, confirmamos sua demonstração para o dia {{2}} às {{3}}. Caso precise reagendar, clique no botão abaixo.","example":{"body_text":[["Amanda","15/09/2026","14:00"]]}},{"type":"FOOTER","text":"Equipe Comercial"},{"type":"BUTTONS","buttons":[{"type":"QUICK_REPLY","text":"Confirmar Presença"},{"type":"QUICK_REPLY","text":"Reagendar"}]}]', 'approved', 'meta_tmpl_ag_02'),
-		($5, $2, $3, 'oferta_exclusiva_planos', 'MARKETING', 'pt_BR', '[{"type":"HEADER","format":"IMAGE","text":""},{"type":"BODY","text":"Olá {{1}}! Temos uma condição especial com {{2}} de desconto na contratação da API Oficial do WhatsApp Meta.","example":{"body_text":[["Carlos","30%"]]}},{"type":"FOOTER","text":"Válido até o fim do mês"},{"type":"BUTTONS","buttons":[{"type":"URL","text":"Acessar Proposta","url":"https://narrowconnect.com.br/oferta"}]}]', 'approved', 'meta_tmpl_mk_03')`
-		_, _ = h.db.ExecContext(ctx, q, uuid.New(), companyID, channelID, uuid.New(), uuid.New())
+		q := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status)
+		VALUES
+		($1, $2, $3, 'boas_vindas_atendimento', 'UTILITY', 'pt_BR', '[{"type":"HEADER","format":"TEXT","text":"Atendimento"},{"type":"BODY","text":"Olá {{1}}, obrigado pelo contato! Seu protocolo é {{2}}. Um de nossos especialistas entrará em contato em instantes.","example":{"body_text":[["Lucas","AT-2026-99"]]}},{"type":"FOOTER","text":"Atendimento Omnichannel"}]', 'draft'),
+		($4, $2, $3, 'confirmacao_agendamento', 'UTILITY', 'pt_BR', '[{"type":"HEADER","format":"TEXT","text":"Confirmação de Reunião"},{"type":"BODY","text":"Olá {{1}}, confirmamos sua demonstração para o dia {{2}} às {{3}}. Caso precise reagendar, clique no botão abaixo.","example":{"body_text":[["Amanda","15/09/2026","14:00"]]}},{"type":"FOOTER","text":"Equipe Comercial"},{"type":"BUTTONS","buttons":[{"type":"QUICK_REPLY","text":"Confirmar Presença"},{"type":"QUICK_REPLY","text":"Reagendar"}]}]', 'draft')`
+		_, _ = h.db.ExecContext(ctx, q, uuid.New(), companyID, channelID, uuid.New())
 	}
 }
 
@@ -283,12 +287,19 @@ func (h *Handler) DeleteChannel(c *fiber.Ctx) error {
 // NARROW META APP WEBHOOK HANDLERS
 // ==========================================
 
+// publicBaseURL resolves the public-facing base URL for building webhook callback URLs.
+// Prefers the explicit APP_URL env var (correct behind a reverse proxy that doesn't
+// forward the original Host/Proto), falling back to the incoming request's own base URL.
+func publicBaseURL(c *fiber.Ctx) string {
+	if appURL := os.Getenv("APP_URL"); appURL != "" {
+		return strings.TrimRight(appURL, "/")
+	}
+	return c.BaseURL()
+}
+
 // GetMetaAppConfig returns verification details for configuring Narrow's Meta App
 func (h *Handler) GetMetaAppConfig(c *fiber.Ctx) error {
-	webhookURL := fmt.Sprintf("%s/webhooks/meta", c.BaseURL())
-	if appURL := os.Getenv("APP_URL"); appURL != "" {
-		webhookURL = strings.TrimRight(appURL, "/") + "/webhooks/meta"
-	}
+	webhookURL := publicBaseURL(c) + "/webhooks/meta"
 	return c.JSON(fiber.Map{
 		"app_id":       h.metaClient.AppID(),
 		"config_id":    h.metaClient.ConfigID(),
@@ -315,7 +326,7 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 
 	channelName := strings.TrimSpace(req.ChannelName)
 	if channelName == "" {
-		channelName = "WhatsApp Oficial Narrow"
+		channelName = "WhatsApp Oficial"
 	}
 
 	// Exchange code on Meta Graph API
@@ -349,7 +360,7 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 		"phone_number_id": res.PhoneID,
 		"quality_rating":  res.Quality,
 		"provider":        "meta_cloud_api",
-		"app_managed":     "narrow_connect",
+		"app_managed":     "wh_panel",
 	}
 	configBytes, _ := json.Marshal(configMap)
 
@@ -603,7 +614,7 @@ func (h *Handler) CreateWAHASession(c *fiber.Ctx) error {
 		req.ChannelName = fmt.Sprintf("WhatsApp WAHA (%s)", req.SessionName)
 	}
 
-	webhookURL := fmt.Sprintf("%s/webhooks/waha", c.BaseURL())
+	webhookURL := publicBaseURL(c) + "/webhooks/waha"
 	session, err := h.wahaClient.StartSession(c.UserContext(), req.SessionName, webhookURL)
 	if err != nil {
 		log.Printf("[WAHA] Error starting session: %v", err)
@@ -712,7 +723,7 @@ func (h *Handler) LogoutWAHASession(c *fiber.Ctx) error {
 // RestartWAHASession restarts the WAHA session
 func (h *Handler) RestartWAHASession(c *fiber.Ctx) error {
 	sessionName := c.Params("session")
-	webhookURL := fmt.Sprintf("%s/webhooks/waha", c.BaseURL())
+	webhookURL := publicBaseURL(c) + "/webhooks/waha"
 	session, err := h.wahaClient.StartSession(c.UserContext(), sessionName, webhookURL)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

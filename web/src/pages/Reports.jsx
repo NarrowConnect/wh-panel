@@ -86,7 +86,7 @@ export const Reports = () => {
         ApiClient.get('/reports/conversations', params),
         ApiClient.get('/dashboard/attendants-performance'),
         ApiClient.get('/dashboard/sentiment-analysis'),
-        ApiClient.get('/channels'),
+        ApiClient.get('/dashboard/channels-volume', params),
       ]);
 
       if (convRes.status === 'fulfilled' && convRes.value?.items && convRes.value.items.length > 0) {
@@ -137,7 +137,15 @@ export const Reports = () => {
       if (chanRes.status === 'fulfilled') {
         const list = Array.isArray(chanRes.value) ? chanRes.value : (chanRes.value?.channels || []);
         if (list.length > 0) {
-          setChannelsList(list);
+          const totalCount = list.reduce((sum, c) => sum + (c.total_count || 0), 0) || 1;
+          const mappedChannels = list.map((c) => ({
+            name: c.channel_name || c.name || 'Canal',
+            type: c.channel_type || c.type || '-',
+            count: c.total_count || 0,
+            percentage: `${(((c.total_count || 0) / totalCount) * 100).toFixed(1)}%`,
+            status: 'Ativo',
+          }));
+          setChannelsList(mappedChannels);
         }
       }
     } catch {
@@ -212,7 +220,7 @@ export const Reports = () => {
           });
         } else {
           csvContent += 'Canal,Tipo,Mensagens,Participacao,Status\n';
-          defaultChannels.forEach((r) => {
+          displayedChannels.forEach((r) => {
             csvContent += `"${r.name}","${r.type}",${r.count},"${r.percentage}","${r.status}"\n`;
           });
         }
@@ -229,6 +237,26 @@ export const Reports = () => {
       setTimeout(() => setDownloading(false), 600);
     }
   };
+
+  // Derived KPI Summary (computed from real fetched data, mock fallback included)
+  const avgTmprMin = (() => {
+    const vals = conversations.map((c) => parseFloat(c.tmpr)).filter((v) => !isNaN(v));
+    if (vals.length === 0) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  })();
+  const resolvedCount = conversations.filter((c) => c.status === 'resolved' || c.status === 'Resolvida').length;
+  const resolutionRatePct = conversations.length > 0 ? ((resolvedCount / conversations.length) * 100).toFixed(1) : '0.0';
+  const avgCsat = (() => {
+    const vals = attendants.map((a) => parseFloat(a.csat_score)).filter((v) => !isNaN(v));
+    if (vals.length === 0) return null;
+    return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2);
+  })();
+  const positiveSentimentPct = (() => {
+    const list = sentimentData || defaultSentiment;
+    const positive = list.find((s) => /positivo/i.test(s.category));
+    return positive ? positive.percentage : null;
+  })();
+  const displayedChannels = channelsList.length > 0 ? channelsList : defaultChannels;
 
   // Filter conversations by search term
   const filteredConversations = conversations.filter((c) => {
@@ -348,9 +376,9 @@ export const Reports = () => {
             <span className="text-xs font-medium">TMPR Médio (1ª Resposta)</span>
             <Clock className="w-4 h-4 text-blue-400" />
           </div>
-          <div className="text-xl font-bold text-white font-mono">1.3 min</div>
-          <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1 font-medium">
-            <TrendingUp className="w-3 h-3" /> 22s mais rápido que a meta
+          <div className="text-xl font-bold text-white font-mono">{avgTmprMin !== null ? `${avgTmprMin.toFixed(1)} min` : '-'}</div>
+          <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+            Meta operacional: &lt; 2 min
           </div>
         </div>
 
@@ -359,7 +387,7 @@ export const Reports = () => {
             <span className="text-xs font-medium">Taxa de Resolução</span>
             <CheckCircle className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="text-xl font-bold text-white font-mono">92.4%</div>
+          <div className="text-xl font-bold text-white font-mono">{resolutionRatePct}%</div>
           <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
             Meta operacional: 90%
           </div>
@@ -370,9 +398,9 @@ export const Reports = () => {
             <span className="text-xs font-medium">Satisfação CSAT Médio</span>
             <Smile className="w-4 h-4 text-amber-400" />
           </div>
-          <div className="text-xl font-bold text-white font-mono">4.85 / 5.0</div>
+          <div className="text-xl font-bold text-white font-mono">{avgCsat !== null ? `${avgCsat} / 5.0` : '-'}</div>
           <div className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1 font-medium">
-            <Sparkles className="w-3 h-3" /> 98% avaliações positivas
+            <Sparkles className="w-3 h-3" /> {positiveSentimentPct !== null ? `${positiveSentimentPct}% avaliações positivas` : 'Sem dados de sentimento'}
           </div>
         </div>
       </div>
@@ -406,7 +434,7 @@ export const Reports = () => {
             title: 'Volume por Canais',
             desc: 'Distribuição WhatsApp Meta, QR, Direct e Webchat',
             icon: Radio,
-            badge: `${defaultChannels.length} canais`,
+            badge: `${displayedChannels.length} canais`,
           },
         ].map((rep) => {
           const Icon = rep.icon;
@@ -629,7 +657,7 @@ export const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {defaultChannels.map((ch, i) => (
+                {displayedChannels.map((ch, i) => (
                   <tr key={i} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 font-bold text-white flex items-center gap-2">
                       <Radio className="w-3.5 h-3.5 text-brand-400" />

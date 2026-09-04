@@ -45,10 +45,10 @@ export const CRM = ({ onOpenChat }) => {
   const [stages, setStages] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // View Mode: 'kanban' or 'list' (ClickUp style)
+  // View Mode: 'kanban' or 'list'
   const [viewMode, setViewMode] = useState('kanban');
 
-  // Custom Fields (Kommo / ClickUp style)
+  // Custom Fields
   const [customFields, setCustomFields] = useState([]);
   const [showCustomFieldsModal, setShowCustomFieldsModal] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
@@ -60,7 +60,7 @@ export const CRM = ({ onOpenChat }) => {
   const [showAddDealModal, setShowAddDealModal] = useState(false);
   const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
   const [showAddStageModal, setShowAddStageModal] = useState(false);
-  const [selectedCard, setSelectedCard] = useState(null); // Kommo 360 view inspector
+  const [selectedCard, setSelectedCard] = useState(null); // 360 view inspector
 
   // Filters & Search
   const [search, setSearch] = useState('');
@@ -136,7 +136,7 @@ export const CRM = ({ onOpenChat }) => {
       cards: [
         {
           id: 'card_103',
-          title: 'Integração CRM + Chatbot IA Narrow',
+          title: 'Integração CRM + Chatbot IA',
           value: 8400,
           status: 'open',
           created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
@@ -375,7 +375,7 @@ export const CRM = ({ onOpenChat }) => {
     }
   };
 
-  // Create New Custom Field (Kommo / ClickUp style)
+  // Create New Custom Field
   const handleCreateCustomField = async (e) => {
     e.preventDefault();
     if (!newFieldName.trim()) return;
@@ -518,7 +518,7 @@ export const CRM = ({ onOpenChat }) => {
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col p-6 space-y-4 overflow-hidden bg-[#070b14]">
-      {/* 1. Header Toolbar (Kommo / ClickUp style) */}
+      {/* 1. Header Toolbar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 glass-card p-4 rounded-2xl border border-slate-800 shadow-xl flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shadow-inner">
@@ -529,7 +529,7 @@ export const CRM = ({ onOpenChat }) => {
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold text-white">CRM & Pipelines de Vendas</h2>
               <span className="px-2 py-0.5 rounded bg-brand-500/20 border border-brand-500/30 text-[10px] font-bold text-brand-300">
-                Kommo & ClickUp Pro
+                WH Panel Pro
               </span>
             </div>
             <p className="text-xs text-slate-400">
@@ -620,7 +620,7 @@ export const CRM = ({ onOpenChat }) => {
         </div>
       </div>
 
-      {/* 2. Pipeline Summary & Metrics Strip (ClickUp / Kommo header counters) */}
+      {/* 2. Pipeline Summary & Metrics Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-shrink-0">
         <div className="glass-card p-3 rounded-xl border border-slate-800 flex items-center justify-between">
           <div>
@@ -785,17 +785,22 @@ export const CRM = ({ onOpenChat }) => {
                           </div>
                         )}
 
-                        {/* Custom Fields Preview Chips (Kommo / ClickUp style) */}
+                        {/* Custom Fields Preview Chips */}
                         {card.custom_values && Object.keys(card.custom_values).length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-1">
                             {Object.entries(card.custom_values).map(([k, val]) => {
                               if (!val) return null;
+                              const field = customFields.find((f) => f.key === k);
+                              const label = field?.name || k;
+                              const displayVal = field?.field_type === 'date' && !isNaN(Date.parse(val))
+                                ? new Date(val).toLocaleDateString('pt-BR')
+                                : String(val);
                               return (
                                 <span
                                   key={k}
                                   className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[9px] font-medium"
                                 >
-                                  {k}: {String(val)}
+                                  {label}: {displayVal}
                                 </span>
                               );
                             })}
@@ -846,7 +851,7 @@ export const CRM = ({ onOpenChat }) => {
           })}
         </div>
       ) : (
-        /* List / Table View (ClickUp Table style) */
+        /* List / Table View */
         <div className="flex-1 overflow-y-auto glass-card rounded-2xl border border-slate-800 p-4 shadow-xl">
           <table className="w-full text-left text-xs">
             <thead>
@@ -895,9 +900,9 @@ export const CRM = ({ onOpenChat }) => {
                       <span
                         className="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
                         style={{
-                          backgroundColor: `${stg.color}20`,
-                          borderColor: `${stg.color}40`,
-                          color: stg.color,
+                          backgroundColor: `${stg.color || '#6366F1'}20`,
+                          borderColor: `${stg.color || '#6366F1'}40`,
+                          color: stg.color || '#6366F1',
                         }}
                       >
                         {stg.name}
@@ -1044,7 +1049,7 @@ export const CRM = ({ onOpenChat }) => {
                 </div>
               </div>
 
-              {/* Dynamic Custom Fields (ClickUp / Kommo style) */}
+              {/* Dynamic Custom Fields */}
               {customFields.length > 0 && (
                 <div className="space-y-3 pt-1">
                   <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
@@ -1128,7 +1133,7 @@ export const CRM = ({ onOpenChat }) => {
         </div>
       )}
 
-      {/* 6. MODAL: Gerenciar / Criar Campos Personalizados (Kommo / ClickUp Engine) */}
+      {/* 6. MODAL: Gerenciar / Criar Campos Personalizados */}
       {showCustomFieldsModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-[#0e121e] border border-slate-800 rounded-2xl w-full max-w-xl p-6 shadow-2xl space-y-5">
@@ -1140,7 +1145,7 @@ export const CRM = ({ onOpenChat }) => {
                 <div>
                   <h3 className="text-sm font-bold text-white">Campos Personalizados (CRM & Contatos)</h3>
                   <p className="text-[11px] text-slate-400">
-                    Defina campos dinâmicos estilo ClickUp / Kommo para capturar dados do cliente e negócio
+                    Defina campos dinâmicos para capturar dados do cliente e negócio
                   </p>
                 </div>
               </div>
@@ -1350,7 +1355,7 @@ export const CRM = ({ onOpenChat }) => {
         </div>
       )}
 
-      {/* 9. MODAL: Kommo 360 Deal Inspector & Detail View */}
+      {/* 9. MODAL: 360 Deal Inspector & Detail View */}
       {selectedCard && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-[#0e121e] border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -1448,7 +1453,7 @@ export const CRM = ({ onOpenChat }) => {
               </div>
             )}
 
-            {/* Custom Fields Inspector (Kommo / ClickUp style) */}
+            {/* Custom Fields Inspector */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -1458,7 +1463,10 @@ export const CRM = ({ onOpenChat }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {customFields.map((f) => {
-                  const val = selectedCard.custom_values?.[f.key] || '';
+                  const rawVal = selectedCard.custom_values?.[f.key] || '';
+                  const val = f.field_type === 'date' && rawVal && !isNaN(Date.parse(rawVal))
+                    ? new Date(rawVal).toLocaleDateString('pt-BR')
+                    : rawVal;
                   return (
                     <div key={f.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800">
                       <span className="text-[10px] text-slate-400 block font-semibold mb-0.5">{f.name}</span>

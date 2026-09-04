@@ -62,6 +62,16 @@ export const Contacts = ({ onOpenChat }) => {
   const [primaryContactId, setPrimaryContactId] = useState('');
   const [duplicateContactId, setDuplicateContactId] = useState('');
 
+  // Contact Form Validation
+  const [contactFormError, setContactFormError] = useState('');
+
+  // Normalizes to E.164-ish format required for WhatsApp/Meta messaging (digits only, with leading +)
+  const normalizePhone = (raw) => {
+    const digits = raw.replace(/[^\d]/g, '');
+    if (digits.length < 8 || digits.length > 15) return null;
+    return `+${digits}`;
+  };
+
   // Default Synchronized Custom Fields fallback
   const defaultCustomFields = [
     { id: 'cf_segment', name: 'Segmento de Mercado', key: 'segmento', field_type: 'select', options: '["Tecnologia", "Varejo", "Saúde", "Imobiliário", "Financeiro", "Educação"]' },
@@ -168,10 +178,18 @@ export const Contacts = ({ onOpenChat }) => {
     e.preventDefault();
     if (!name.trim()) return;
 
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) {
+      setContactFormError('Telefone inválido. Informe o número completo com DDD/código do país (ex: +55 11 99999-8888) — é exigido para envio de mensagens via WhatsApp/Meta.');
+      return;
+    }
+    setContactFormError('');
+
+    const tempId = `ct_${Date.now()}`;
     const newContactObj = {
-      id: `ct_${Date.now()}`,
+      id: tempId,
       name,
-      phone,
+      phone: normalizedPhone,
       email,
       notes: contactNotes,
       status: 'active',
@@ -192,13 +210,18 @@ export const Contacts = ({ onOpenChat }) => {
     setContactCustomValues({});
 
     try {
-      await ApiClient.post('/contacts', {
+      const created = await ApiClient.post('/contacts', {
         name: newContactObj.name,
         phone: newContactObj.phone,
         email: newContactObj.email,
         notes: newContactObj.notes,
         custom_values: newContactObj.custom_values,
       });
+      // Reconcile the temporary local id with the real backend id so future
+      // edits (handleUpdateContact) are persisted instead of silently skipped.
+      if (created?.id) {
+        setContacts((prev) => prev.map((c) => (c.id === tempId ? { ...newContactObj, ...created } : c)));
+      }
     } catch (err) {
       console.warn('[Contacts] Created locally:', err);
     }
@@ -209,19 +232,26 @@ export const Contacts = ({ onOpenChat }) => {
     e.preventDefault();
     if (!selectedContact) return;
 
+    const normalizedPhone = normalizePhone(selectedContact.phone || '');
+    if (!normalizedPhone) {
+      alert('Telefone inválido. Informe o número completo com DDD/código do país (ex: +55 11 99999-8888).');
+      return;
+    }
+    const updatedContact = { ...selectedContact, phone: normalizedPhone };
+
     setContacts((prev) =>
-      prev.map((c) => (c.id === selectedContact.id ? selectedContact : c))
+      prev.map((c) => (c.id === updatedContact.id ? updatedContact : c))
     );
     setSelectedContact(null);
 
     try {
-      if (!selectedContact.id.startsWith('ct_')) {
-        await ApiClient.put(`/contacts/${selectedContact.id}`, {
-          name: selectedContact.name,
-          phone: selectedContact.phone,
-          email: selectedContact.email,
-          notes: selectedContact.notes,
-          custom_values: selectedContact.custom_values,
+      if (!updatedContact.id.startsWith('ct_')) {
+        await ApiClient.put(`/contacts/${updatedContact.id}`, {
+          name: updatedContact.name,
+          phone: updatedContact.phone,
+          email: updatedContact.email,
+          notes: updatedContact.notes,
+          custom_values: updatedContact.custom_values,
         });
       }
     } catch (err) {
@@ -367,6 +397,7 @@ export const Contacts = ({ onOpenChat }) => {
               <button
                 onClick={() => {
                   setContactCustomValues({});
+                  setContactFormError('');
                   setShowAddModal(true);
                 }}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 active:scale-95 text-white text-xs font-bold shadow-lg shadow-brand-500/25 flex items-center gap-1.5 transition-all"
@@ -403,7 +434,7 @@ export const Contacts = ({ onOpenChat }) => {
             </div>
 
             <span className="text-xs text-slate-400 font-mono">
-              Mostrando {filteredContacts.length} de {contacts.length} contatos
+              Mostrando {filteredContacts.length} de {contacts.length} {contacts.length === 1 ? 'contato' : 'contatos'}
             </span>
           </div>
 
@@ -465,12 +496,17 @@ export const Contacts = ({ onOpenChat }) => {
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           {Object.entries(contact.custom_values).map(([k, v]) => {
                             if (!v) return null;
+                            const field = customFields.find((f) => f.key === k);
+                            const label = field?.name || k;
+                            const displayVal = field?.field_type === 'date' && !isNaN(Date.parse(v))
+                              ? new Date(v).toLocaleDateString('pt-BR')
+                              : String(v);
                             return (
                               <span
                                 key={k}
                                 className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-mono"
                               >
-                                {k}: {String(v)}
+                                {label}: {displayVal}
                               </span>
                             );
                           })}
@@ -600,6 +636,12 @@ export const Contacts = ({ onOpenChat }) => {
             </div>
 
             <form onSubmit={handleCreateContact} className="space-y-4">
+              {contactFormError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium">
+                  {contactFormError}
+                </div>
+              )}
+
               {/* Basic Contact Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
@@ -638,7 +680,7 @@ export const Contacts = ({ onOpenChat }) => {
                 </div>
               </div>
 
-              {/* DYNAMIC CUSTOM FIELDS SECTION (ClickUp / Kommo Style) */}
+              {/* DYNAMIC CUSTOM FIELDS SECTION */}
               {customFields.length > 0 && (
                 <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
                   <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
@@ -821,6 +863,30 @@ export const Contacts = ({ onOpenChat }) => {
                               </option>
                             ))}
                           </select>
+                        ) : field.field_type === 'date' ? (
+                          <input
+                            type="date"
+                            value={currentVal}
+                            onChange={(e) =>
+                              setSelectedContact((prev) => ({
+                                ...prev,
+                                custom_values: { ...prev.custom_values, [field.key]: e.target.value },
+                              }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"
+                          />
+                        ) : field.field_type === 'number' ? (
+                          <input
+                            type="number"
+                            value={currentVal}
+                            onChange={(e) =>
+                              setSelectedContact((prev) => ({
+                                ...prev,
+                                custom_values: { ...prev.custom_values, [field.key]: e.target.value },
+                              }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono"
+                          />
                         ) : (
                           <input
                             type="text"

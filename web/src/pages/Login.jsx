@@ -37,7 +37,7 @@ export const Login = ({ onSwitchToRegister }) => {
             <MessageSquare className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">
-            WH - <span className="text-brand-400">PANEL</span>
+            WH <span className="text-brand-400">Panel</span>
           </h1>
           <p className="text-slate-400 text-sm mt-1">
             Plataforma Omnichannel Multi-Tenant de Atendimento

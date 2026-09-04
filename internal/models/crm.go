@@ -75,9 +75,10 @@ type CRMCard struct {
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
 
-	Contact  *Contact  `json:"contact,omitempty" db:"-"`
-	Assignee *User     `json:"assignee,omitempty" db:"-"`
-	Subtasks []CRMSubtask `json:"subtasks,omitempty" db:"-"`
+	Contact   *Contact  `json:"contact,omitempty" db:"-"`
+	Assignee  *User     `json:"assignee,omitempty" db:"-"`
+	StageName string    `json:"stage_name,omitempty" db:"-"`
+	Subtasks  []CRMSubtask `json:"subtasks,omitempty" db:"-"`
 }
 
 type CRMSubtask struct {

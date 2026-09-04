@@ -57,6 +57,7 @@ export const Conversations = () => {
   // 360 Drawer
   const [showDrawer, setShowDrawer] = useState(true);
   const [contact360, setContact360] = useState(null);
+  const [crmCard, setCrmCard] = useState(null);
   const [newTagInput, setNewTagInput] = useState('');
   const [templates, setTemplates] = useState([]);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
@@ -71,7 +72,7 @@ export const Conversations = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Fetch conversations (Chatwoot-like filters aligned with backend)
+  // Fetch conversations (filters aligned with backend)
   const fetchConversations = async () => {
     try {
       const params = {};
@@ -109,14 +110,18 @@ export const Conversations = () => {
   const selectConversation = async (conv) => {
     setSelectedConv(conv);
     setMessagesLoading(true);
+    setCrmCard(null);
     try {
-      const [msgs, contactData] = await Promise.all([
+      const [msgs, contactData, cardsData] = await Promise.all([
         ApiClient.get(`/conversations/${conv.id}/messages`),
         conv.contact_id ? ApiClient.get(`/contacts/${conv.contact_id}`) : Promise.resolve(null),
+        conv.contact_id ? ApiClient.get('/crm/cards', { contact_id: conv.contact_id, status: 'open' }).catch(() => null) : Promise.resolve(null),
       ]);
       const msgList = Array.isArray(msgs) ? msgs : (msgs?.messages || []);
       setMessages(msgList);
       setContact360(contactData);
+      const cardsList = Array.isArray(cardsData) ? cardsData : (cardsData?.cards || []);
+      setCrmCard(cardsList.length > 0 ? cardsList[0] : null);
     } catch (err) {
       console.error('[Conversations] Error fetching messages:', err);
       setMessages([]);
@@ -524,7 +529,7 @@ export const Conversations = () => {
                           </div>
                           <p className="whitespace-pre-wrap">{msg.body}</p>
                           <span className="text-[10px] text-amber-400/70 block text-right mt-1">
-                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                           </span>
                         </div>
                       ) : (
@@ -551,7 +556,7 @@ export const Conversations = () => {
                             }`}
                           >
                             <span>
-                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                             </span>
                             {isOutbound && <CheckCheck className="w-3.5 h-3.5 text-emerald-200" />}
                           </div>
@@ -689,40 +694,26 @@ export const Conversations = () => {
               <Kanban className="w-3.5 h-3.5 text-blue-400" />
               <span>Oportunidade CRM</span>
             </span>
-            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-300 font-medium">Etapa do Funil:</span>
-                <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-semibold text-[10px]">
-                  Qualificação IA
-                </span>
+            {crmCard ? (
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-medium truncate max-w-[140px]">{crmCard.title}</span>
+                  <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-semibold text-[10px] whitespace-nowrap">
+                    {crmCard.stage_name || 'Etapa desconhecida'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-medium">Valor Estimado:</span>
+                  <span className="text-emerald-400 font-bold font-mono">
+                    {(crmCard.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-300 font-medium">Valor Estimado:</span>
-                <span className="text-emerald-400 font-bold font-mono">R$ 2.400,00</span>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-500 text-center">
+                Nenhuma oportunidade vinculada a este contato ainda.
               </div>
-            </div>
-          </div>
-
-          {/* AI SDR Collected Form Stage */}
-          <div className="space-y-2">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              <Bot className="w-3.5 h-3.5 text-purple-400" />
-              <span>Dados Coletados pela IA</span>
-            </span>
-            <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-800/30 space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Interesse:</span>
-                <span className="text-purple-200 font-medium">Plano Enterprise</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Empresa:</span>
-                <span className="text-purple-200 font-medium">Tech Solutions</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Urgência:</span>
-                <span className="text-emerald-400 font-bold">Alta (Esta semana)</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Tags */}
@@ -732,14 +723,18 @@ export const Conversations = () => {
               <span>Tags de Atendimento</span>
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {(contact360?.tags || ['Lead Qualificado', 'WhatsApp', 'VIP']).map((tag, idx) => (
-                <span
-                  key={idx}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 font-medium"
-                >
-                  #{tag}
-                </span>
-              ))}
+              {contact360?.tags && contact360.tags.length > 0 ? (
+                contact360.tags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 font-medium"
+                  >
+                    #{tag}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[11px] text-slate-500 italic">Nenhuma tag ainda</span>
+              )}
             </div>
             <form onSubmit={handleAddTag} className="flex gap-1 mt-1">
               <input
@@ -775,24 +770,37 @@ export const Conversations = () => {
             </div>
 
             <div className="max-h-72 overflow-y-auto space-y-2">
-              {(Array.isArray(templates) ? templates : []).map((tmpl) => (
-                <div
-                  key={tmpl.id}
-                  onClick={() => {
-                    setMessageText(tmpl.components_json || tmpl.name);
-                    setShowTemplatesModal(false);
-                  }}
-                  className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-slate-800 cursor-pointer transition-colors"
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-white">{tmpl.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-semibold">
-                      {tmpl.category}
-                    </span>
+              {(Array.isArray(templates) ? templates : []).map((tmpl) => {
+                let bodyContent = tmpl.name;
+                try {
+                  if (typeof tmpl.components_json === 'string' && tmpl.components_json.startsWith('[')) {
+                    const comps = JSON.parse(tmpl.components_json);
+                    const bodyComp = comps.find((c) => c.type === 'BODY');
+                    bodyContent = bodyComp?.text || tmpl.name;
+                  }
+                } catch {
+                  bodyContent = tmpl.name;
+                }
+
+                return (
+                  <div
+                    key={tmpl.id}
+                    onClick={() => {
+                      setMessageText(bodyContent);
+                      setShowTemplatesModal(false);
+                    }}
+                    className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-slate-800 cursor-pointer transition-colors"
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-white">{tmpl.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-semibold">
+                        {tmpl.category}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate">{bodyContent}</p>
                   </div>
-                  <p className="text-[11px] text-slate-400 truncate">{tmpl.components_json || 'Template pronto'}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

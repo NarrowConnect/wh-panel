@@ -190,10 +190,17 @@ func main() {
 	// Initialize Meta Graph API & Narrow App client
 	metaAppID := getEnv("META_APP_ID", "")
 	metaAppSecret := getEnv("META_APP_SECRET", "")
-	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "narrow_wh_verify_secret_2026")
+	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "")
 	metaAPIVersion := getEnv("META_API_VERSION", "v20.0")
 	metaAccessToken := getEnv("META_ACCESS_TOKEN", "")
-	metaConfigID := getEnv("META_CONFIG_ID", "894644480139460")
+	metaConfigID := getEnv("META_CONFIG_ID", "")
+
+	if metaAppSecret == "" {
+		log.Println("[WARN] META_APP_SECRET não configurado — assinaturas de webhook da Meta serão rejeitadas até ser definido no .env")
+	}
+	if metaConfigID == "" {
+		log.Println("[WARN] META_CONFIG_ID não configurado — a Conexão Automática (Embedded Signup) ficará indisponível até ser definido no .env")
+	}
 
 	metaClient := meta.NewClient(meta.Config{
 		AppID:       metaAppID,
