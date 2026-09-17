@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -77,6 +78,12 @@ func (c *Client) ConfigID() string {
 
 func (c *Client) VerifyToken() string {
 	return c.verifyToken
+}
+
+// AppSecretConfigured reports whether META_APP_SECRET is set, without exposing the
+// secret itself — used to surface setup/health status to the frontend.
+func (c *Client) AppSecretConfigured() bool {
+	return c.appSecret != ""
 }
 
 func (c *Client) APIVersion() string {
@@ -181,9 +188,9 @@ func (c *Client) SubmitTemplate(ctx context.Context, wabaID, accessToken, name, 
 	}
 	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/message_templates", c.apiVersion, wabaID)
 	payload := map[string]interface{}{
-		"name":     name,
-		"category": category,
-		"language": language,
+		"name":       name,
+		"category":   category,
+		"language":   language,
 		"components": components,
 	}
 	jsonBytes, err := json.Marshal(payload)
@@ -400,6 +407,49 @@ func (c *Client) ExchangeEmbeddedSignupCode(ctx context.Context, code string) (*
 	return res, nil
 }
 
+// ParseSignedRequest verifies and decodes a Meta/Facebook "signed_request" parameter
+// (format: "<base64url signature>.<base64url JSON payload>"), as sent to the Data
+// Deletion Request and Deauthorize callbacks. Returns the Facebook user_id from the
+// payload once the HMAC-SHA256 signature has been verified against the App Secret.
+// Reference: https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback
+func (c *Client) ParseSignedRequest(signedRequest string) (string, error) {
+	parts := strings.SplitN(signedRequest, ".", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("signed_request malformado")
+	}
+	encodedSig, encodedPayload := parts[0], parts[1]
+
+	sig, err := base64.RawURLEncoding.DecodeString(encodedSig)
+	if err != nil {
+		return "", fmt.Errorf("assinatura com codificação inválida: %w", err)
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(encodedPayload)
+	if err != nil {
+		return "", fmt.Errorf("payload com codificação inválida: %w", err)
+	}
+
+	if c.appSecret == "" {
+		return "", fmt.Errorf("META_APP_SECRET não está configurado no servidor")
+	}
+	mac := hmac.New(sha256.New, []byte(c.appSecret))
+	mac.Write([]byte(encodedPayload))
+	if !hmac.Equal(sig, mac.Sum(nil)) {
+		return "", fmt.Errorf("assinatura inválida")
+	}
+
+	var payload struct {
+		UserID    string `json:"user_id"`
+		Algorithm string `json:"algorithm"`
+	}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return "", fmt.Errorf("payload JSON inválido: %w", err)
+	}
+	if payload.UserID == "" {
+		return "", fmt.Errorf("user_id ausente no payload")
+	}
+	return payload.UserID, nil
+}
+
 // UploadMedia uploads a sample media file (image/video/document) using Meta's
 // Resumable Upload API and returns the resulting file handle. This handle is
 // required as `example.header_handle` when creating a message template whose
@@ -466,4 +516,3 @@ func (c *Client) UploadMedia(ctx context.Context, fileBytes []byte, mimeType str
 
 	return handleResp.H, nil
 }
-

@@ -35,6 +35,7 @@ export const navItems = [
   { id: 'channels', label: 'Canais & WhatsApp', icon: Radio, badge: null },
   { id: 'contacts', label: 'Contatos', icon: Users, badge: null },
   { id: 'templates', label: 'Templates Meta', icon: FileText, badge: null },
+  { id: 'meta_review', label: 'Homologação Meta', icon: ShieldCheck, badge: 'Audit' },
   { id: 'queues', label: 'Filas & Triagem', icon: Layers, badge: null },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone, badge: null },
   { id: 'integrations', label: 'Integrações & JS', icon: Plug, badge: null },
@@ -63,12 +64,12 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
 
   return (
     <aside
-      className={`h-screen flex flex-col bg-[#08090e] border-r border-white/[0.06] transition-all duration-300 z-30 select-none ${
+      className={`h-screen flex flex-col bg-[#08090e]/70 backdrop-blur-2xl border-r border-white/[0.05] transition-all duration-300 z-30 select-none ${
         collapsed ? 'w-20' : 'w-72'
       }`}
     >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-white/[0.06]">
+      <div className="h-16 flex items-center justify-between px-4 border-b border-white/[0.05]">
         <div className="flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/25 flex-shrink-0">
             <Zap className="w-5 h-5 text-white fill-white" />
@@ -99,17 +100,17 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
         </button>
       </div>
 
-      {/* Mode Switcher Pill Tabs (Stakent Style) */}
+      {/* Mode Switcher Pill Tabs */}
       {!collapsed && (
         <div className="px-3 pt-3">
-          <div className="p-1 rounded-xl bg-[#12141c] border border-white/[0.06] grid grid-cols-2 gap-1">
+          <div className="p-1 rounded-xl bg-white/[0.03] border border-white/[0.06] grid grid-cols-2 gap-1">
             <button
               type="button"
               onClick={() => setActiveMode('omni')}
               className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
                 activeMode === 'omni'
-                  ? 'bg-[#1e2230] text-white shadow-sm border border-white/[0.08]'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white/[0.08] text-white shadow-sm border border-white/[0.1]'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
               }`}
             >
               Omnichannel
@@ -119,8 +120,8 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
               onClick={() => setActiveMode('flows')}
               className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
                 activeMode === 'flows'
-                  ? 'bg-[#1e2230] text-white shadow-sm border border-white/[0.08]'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white/[0.08] text-white shadow-sm border border-white/[0.1]'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
               }`}
             >
               Agentes IA
@@ -130,7 +131,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
       )}
 
       {/* Navigation List */}
-      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
         <div className={`px-2 pb-1.5 text-[10px] font-bold tracking-wider text-slate-500 uppercase ${collapsed ? 'text-center' : ''}`}>
           {collapsed ? '•••' : 'Menu Principal'}
         </div>
@@ -143,13 +144,16 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-2xl text-xs font-semibold transition-all group relative ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all group relative ${
                 isActive
-                  ? 'bg-[#181b26] text-white border border-white/[0.09] shadow-sm font-bold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]'
+                  ? 'bg-white/[0.07] text-white shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.035]'
               }`}
               title={collapsed ? item.label : undefined}
             >
+              {isActive && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gradient-to-b from-purple-400 to-indigo-500" />
+              )}
               <Icon
                 className={`w-4 h-4 flex-shrink-0 transition-transform group-hover:scale-110 ${
                   isActive ? 'text-purple-400' : 'text-slate-400 group-hover:text-purple-400'
@@ -206,7 +210,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
                     <div
                       key={ch.id}
                       onClick={() => setActiveTab('channels')}
-                      className="p-2 rounded-xl bg-[#10121a] hover:bg-[#151722] border border-white/[0.04] flex items-center justify-between text-xs cursor-pointer transition-colors"
+                      className="p-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] flex items-center justify-between text-xs cursor-pointer transition-colors"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[10px] flex-shrink-0 ${
@@ -227,7 +231,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
             ) : (
               <div
                 onClick={() => setActiveTab('channels')}
-                className="p-2 rounded-xl bg-[#10121a]/60 border border-white/[0.04] text-center cursor-pointer hover:bg-[#141622] transition-colors"
+                className="p-2 rounded-xl bg-white/[0.02] border border-white/[0.05] text-center cursor-pointer hover:bg-white/[0.05] transition-colors"
               >
                 <p className="text-[10px] text-slate-500 font-medium">Nenhum canal ativo</p>
                 <p className="text-[10px] text-purple-400 font-bold mt-0.5 flex items-center justify-center gap-1">
@@ -287,7 +291,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
       )}
 
       {/* Footer / User Profile & Realtime Status */}
-      <div className="p-3 border-t border-white/[0.06] bg-[#07080c]">
+      <div className="p-3 border-t border-white/[0.05]">
         {/* Realtime WebSocket Pulse */}
         <div className={`mb-2.5 flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-1`}>
           {!collapsed && (
@@ -304,7 +308,7 @@ export const Sidebar = ({ activeTab, setActiveTab, collapsed, setCollapsed }) =>
           )}
         </div>
 
-        <div className={`flex items-center gap-2.5 p-2 rounded-2xl bg-[#10121a] border border-white/[0.06] ${collapsed ? 'justify-center' : ''}`}>
+        <div className={`flex items-center gap-2.5 p-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] ${collapsed ? 'justify-center' : ''}`}>
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white font-bold flex items-center justify-center text-xs shadow-md shadow-purple-500/20">
               {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}

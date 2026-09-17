@@ -28,13 +28,13 @@ export const Header = ({ activeTitle, onNavigate }) => {
   const currentStatus = statusConfig[status] || statusConfig.online;
 
   return (
-    <header className="h-16 bg-[#08090e]/90 backdrop-blur-xl border-b border-white/[0.06] px-6 flex items-center justify-between z-20 select-none">
+    <header className="h-16 bg-[#08090e]/60 backdrop-blur-2xl border-b border-white/[0.05] px-6 flex items-center justify-between z-20 select-none">
       {/* Title & Organization Info */}
       <div className="flex items-center gap-4">
         <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
           <span>{activeTitle}</span>
         </h1>
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-[#12141c] border border-white/[0.06] text-xs text-slate-300 font-medium">
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs text-slate-300 font-medium">
           <Building2 className="w-3.5 h-3.5 text-purple-400" />
           <span className="font-semibold text-white">{company?.name || 'WH Panel'}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/15 text-purple-300 font-bold uppercase">
@@ -43,13 +43,13 @@ export const Header = ({ activeTitle, onNavigate }) => {
         </div>
       </div>
 
-      {/* Center / Search bar (Stakent Style) */}
+      {/* Center / Search bar */}
       <div className="hidden md:flex items-center relative w-72">
         <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5 pointer-events-none" />
         <input
           type="text"
           placeholder="Buscar conversas, contatos... ⌘K"
-          className="w-full bg-[#12141c] border border-white/[0.06] rounded-full pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/50 transition-all font-medium"
+          className="w-full bg-white/[0.04] border border-white/[0.06] rounded-full pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:bg-white/[0.06] focus:border-purple-500/40 transition-all font-medium"
         />
       </div>
 
@@ -66,7 +66,7 @@ export const Header = ({ activeTitle, onNavigate }) => {
 
         {/* Notifications Icon with Badge */}
         <button
-          className="relative p-2 rounded-full bg-[#12141c] hover:bg-[#1a1d29] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          className="relative p-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
           title="Notificações"
         >
           <Bell className="w-4 h-4" />
@@ -77,14 +77,14 @@ export const Header = ({ activeTitle, onNavigate }) => {
         <div className="relative">
           <button
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#12141c] hover:bg-[#1a1d29] border border-white/[0.06] text-xs font-bold text-slate-200 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-bold text-slate-200 transition-colors"
           >
             <span className={`w-2 h-2 rounded-full ${currentStatus.color} animate-pulse`} />
             <span>{currentStatus.label}</span>
           </button>
 
           {showStatusMenu && (
-            <div className="absolute right-0 mt-2 w-44 bg-[#12141c] border border-white/[0.08] rounded-2xl shadow-2xl py-1.5 z-50 animate-fade-in">
+            <div className="absolute right-0 mt-2 w-44 glass-card rounded-2xl shadow-2xl py-1.5 z-50 animate-fade-in">
               <div className="px-3 py-1 text-[9px] uppercase font-bold text-slate-500 tracking-wider">
                 Status de Atendimento
               </div>

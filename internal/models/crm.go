@@ -9,19 +9,19 @@ import (
 
 // CRMPipeline represents a sales/support funnel
 type CRMPipeline struct {
-	ID        uuid.UUID  `json:"id" db:"id"`
-	CompanyID uuid.UUID  `json:"company_id" db:"company_id"`
-	Name      string     `json:"name" db:"name"`
-	IsDefault bool       `json:"is_default" db:"is_default"`
-	CreatedAt time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	CompanyID uuid.UUID `json:"company_id" db:"company_id"`
+	Name      string    `json:"name" db:"name"`
+	IsDefault bool      `json:"is_default" db:"is_default"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 
 	Stages []CRMStage `json:"stages,omitempty" db:"-"`
 }
 
 type CreateCRMPipelineRequest struct {
-	Name      string            `json:"name" validate:"required"`
-	IsDefault bool              `json:"is_default"`
+	Name      string           `json:"name" validate:"required"`
+	IsDefault bool             `json:"is_default"`
 	Stages    []CreateStageDTO `json:"stages"`
 }
 
@@ -66,7 +66,7 @@ type CRMCard struct {
 	Title          string          `json:"title" db:"title"`
 	Description    *string         `json:"description,omitempty" db:"description"`
 	Value          float64         `json:"value" db:"value"`
-	Status         string          `json:"status" db:"status"` // open, won, lost
+	Status         string          `json:"status" db:"status"`     // open, won, lost
 	Priority       string          `json:"priority" db:"priority"` // low, medium, high, urgent
 	DueDate        *time.Time      `json:"due_date,omitempty" db:"due_date"`
 	AssigneeID     *uuid.UUID      `json:"assignee_id,omitempty" db:"assignee_id"`
@@ -75,9 +75,9 @@ type CRMCard struct {
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
 
-	Contact   *Contact  `json:"contact,omitempty" db:"-"`
-	Assignee  *User     `json:"assignee,omitempty" db:"-"`
-	StageName string    `json:"stage_name,omitempty" db:"-"`
+	Contact   *Contact     `json:"contact,omitempty" db:"-"`
+	Assignee  *User        `json:"assignee,omitempty" db:"-"`
+	StageName string       `json:"stage_name,omitempty" db:"-"`
 	Subtasks  []CRMSubtask `json:"subtasks,omitempty" db:"-"`
 }
 

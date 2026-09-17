@@ -18,12 +18,29 @@ import Campaigns from './pages/Campaigns';
 import Integrations from './pages/Integrations';
 import Reports from './pages/Reports';
 import Billing from './pages/Billing';
+import MetaReview from './pages/MetaReview';
+import PublicLegal from './pages/PublicLegal';
 
 const MainLayout = () => {
   const { isAuthenticated, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('conversations');
   const [collapsed, setCollapsed] = useState(false);
   const [authView, setAuthView] = useState('login'); // 'login' or 'register'
+
+  // Public compliance routes for Meta App Reviewers & Crawlers (no auth required)
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const queryPage = searchParams?.get('page');
+
+  if (pathname === '/privacy' || pathname === '/privacidade' || queryPage === 'privacy') {
+    return <PublicLegal initialPage="privacy" onBackToApp={() => { window.location.href = '/'; }} />;
+  }
+  if (pathname === '/terms' || pathname === '/termos' || queryPage === 'terms') {
+    return <PublicLegal initialPage="terms" onBackToApp={() => { window.location.href = '/'; }} />;
+  }
+  if (pathname === '/data-deletion' || pathname === '/exclusao-dados' || queryPage === 'data-deletion') {
+    return <PublicLegal initialPage="data-deletion" onBackToApp={() => { window.location.href = '/'; }} />;
+  }
 
   if (loading) {
     return (
@@ -50,6 +67,7 @@ const MainLayout = () => {
     channels: 'Canais Conectados',
     contacts: 'Gestão de Contatos',
     templates: 'Templates de Mensagem',
+    meta_review: 'Homologação & Auditoria Meta',
     queues: 'Filas & Triagem',
     campaigns: 'Disparos em Massa',
     integrations: 'Integrações & Webhooks',
@@ -73,6 +91,8 @@ const MainLayout = () => {
         return <Contacts onOpenChat={() => setActiveTab('conversations')} />;
       case 'templates':
         return <Templates />;
+      case 'meta_review':
+        return <MetaReview />;
       case 'queues':
         return <Queues />;
       case 'campaigns':
@@ -90,7 +110,7 @@ const MainLayout = () => {
 
   return (
     <WebSocketProvider>
-      <div className="flex h-screen w-screen overflow-hidden bg-[#070b14]">
+      <div className="flex h-screen w-screen overflow-hidden">
         {/* Sidebar Navigation */}
         <Sidebar
           activeTab={activeTab}
@@ -102,7 +122,7 @@ const MainLayout = () => {
         {/* Main Body */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header activeTitle={tabTitleMap[activeTab] || 'WH Panel'} onNavigate={setActiveTab} />
-          <main className="flex-1 overflow-hidden bg-[#070b14]">
+          <main className="flex-1 overflow-hidden">
             {renderActiveTab()}
           </main>
         </div>

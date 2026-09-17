@@ -6,6 +6,12 @@
   body {
     font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background-color: #07080c;
+    background-image:
+      radial-gradient(ellipse 900px 640px at 10% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+      radial-gradient(ellipse 720px 520px at 105% 0%, rgba(56, 189, 248, 0.07), transparent 55%),
+      radial-gradient(ellipse 820px 620px at 10% 105%, rgba(16, 185, 129, 0.05), transparent 55%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     color: #f1f5f9;
   }
 
@@ -56,10 +62,36 @@
   }
 
   .glass-card {
-    background: rgba(14, 16, 23, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background:
+      linear-gradient(155deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 40%, rgba(255, 255, 255, 0.03) 100%),
+      rgba(16, 18, 27, 0.55);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
+      0 20px 40px -22px rgba(0, 0, 0, 0.6);
+  }
+
+  .glass-card-hover {
+    transition: background 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .glass-card-hover:hover {
+    background:
+      linear-gradient(155deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 40%, rgba(255, 255, 255, 0.04) 100%),
+      rgba(20, 22, 33, 0.62);
+    border-color: rgba(255, 255, 255, 0.16);
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+      0 24px 48px -20px rgba(0, 0, 0, 0.65);
+  }
+
+  .glass-panel {
+    background: rgba(10, 12, 18, 0.45);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .pill-button-primary {
