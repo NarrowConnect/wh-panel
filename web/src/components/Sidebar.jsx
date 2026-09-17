@@ -35,6 +35,7 @@ export const navItems = [
   { id: 'channels', label: 'Canais & WhatsApp', icon: Radio, badge: null },
   { id: 'contacts', label: 'Contatos', icon: Users, badge: null },
   { id: 'templates', label: 'Templates Meta', icon: FileText, badge: null },
+  { id: 'meta_review', label: 'Homologação Meta', icon: ShieldCheck, badge: 'Audit' },
   { id: 'queues', label: 'Filas & Triagem', icon: Layers, badge: null },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone, badge: null },
   { id: 'integrations', label: 'Integrações & JS', icon: Plug, badge: null },

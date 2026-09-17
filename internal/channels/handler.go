@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -87,12 +88,24 @@ func (h *Handler) RegisterPublicRoutes(router fiber.Router) {
 	webhooks.Post("/:channel_type/:channel_id", h.ReceiveGenericWebhook)
 }
 
+// RegisterPublicAPIRoutes registers public (no-auth) routes under /api/v1 — as opposed
+// to RegisterPublicRoutes, which registers /webhooks/* at the app root. Meta calls the
+// Data Deletion Request Callback here directly, without any session/tenant context.
+func (h *Handler) RegisterPublicAPIRoutes(router fiber.Router) {
+	metaGroup := router.Group("/meta")
+	metaGroup.Post("/data-deletion", h.HandleMetaDataDeletionCallback)
+	metaGroup.Post("/data-deletion/manual", h.HandleManualDataDeletionRequest)
+	metaGroup.Get("/data-deletion/:id", h.GetDataDeletionStatus)
+}
+
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
 	channels := router.Group("/channels")
 	channels.Get("/", h.ListChannels)
 	channels.Post("/", tenant.RequireRole("admin", "supervisor"), h.CreateChannel)
 	channels.Get("/meta/config", h.GetMetaAppConfig)
 	channels.Post("/meta/embedded-signup", tenant.RequireRole("admin", "supervisor"), h.HandleEmbeddedSignup)
+	channels.Get("/meta/compliance", h.ListMetaComplianceItems)
+	channels.Put("/meta/compliance/:key", tenant.RequireRole("admin", "supervisor"), h.UpdateMetaComplianceItem)
 	channels.Get("/waha/status", h.GetWAHAStatus)
 	channels.Post("/waha/sessions", tenant.RequireRole("admin", "supervisor"), h.CreateWAHASession)
 	channels.Get("/waha/sessions/:session/qr", h.GetWAHAQRCode)
@@ -297,15 +310,44 @@ func publicBaseURL(c *fiber.Ctx) string {
 	return c.BaseURL()
 }
 
-// GetMetaAppConfig returns verification details for configuring Narrow's Meta App
+// GetMetaAppConfig returns verification details for configuring the Meta App, plus
+// real (not fabricated) health flags so the compliance screen can show accurate status.
 func (h *Handler) GetMetaAppConfig(c *fiber.Ctx) error {
 	webhookURL := publicBaseURL(c) + "/webhooks/meta"
+
+	companyIDStr, _ := c.Locals(tenant.LocalCompanyIDKey).(string)
+	hasConnectedChannel := false
+	hasWabaID := false
+	if companyIDStr != "" {
+		if companyID, err := uuid.Parse(companyIDStr); err == nil {
+			var configJSONs []string
+			_ = h.db.SelectContext(c.UserContext(), &configJSONs, `SELECT config_json FROM channels WHERE company_id = $1 AND type IN ('whatsapp_official','whatsapp_meta') AND status = 'active'`, companyID)
+			if len(configJSONs) > 0 {
+				hasConnectedChannel = true
+			}
+			for _, cfgJSON := range configJSONs {
+				var cfg map[string]interface{}
+				if err := json.Unmarshal([]byte(cfgJSON), &cfg); err == nil {
+					if v, ok := cfg["waba_id"].(string); ok && v != "" {
+						hasWabaID = true
+						break
+					}
+				}
+			}
+		}
+	}
+
 	return c.JSON(fiber.Map{
-		"app_id":       h.metaClient.AppID(),
-		"config_id":    h.metaClient.ConfigID(),
-		"verify_token": h.metaClient.VerifyToken(),
-		"api_version":  h.metaClient.APIVersion(),
-		"webhook_url":  webhookURL,
+		"app_id":                h.metaClient.AppID(),
+		"config_id":             h.metaClient.ConfigID(),
+		"verify_token":          h.metaClient.VerifyToken(),
+		"api_version":           h.metaClient.APIVersion(),
+		"webhook_url":           webhookURL,
+		"app_id_configured":     h.metaClient.AppID() != "",
+		"app_secret_configured": h.metaClient.AppSecretConfigured(),
+		"config_id_configured":  h.metaClient.ConfigID() != "",
+		"has_connected_channel": hasConnectedChannel,
+		"has_waba_id":           hasWabaID,
 	})
 }
 
@@ -579,6 +621,274 @@ func (h *Handler) handleMetaTemplateStatusUpdate(ctx context.Context, payload ma
 }
 
 // ==========================================
+// META DATA DELETION REQUEST CALLBACK
+// ==========================================
+
+// HandleMetaDataDeletionCallback implements Meta's official Data Deletion Request
+// Callback contract: Meta POSTs a signed_request here whenever a Facebook/WhatsApp
+// user removes the app via their account settings, and expects back exactly
+// {"url": "...", "confirmation_code": "..."}.
+// Reference: https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback
+func (h *Handler) HandleMetaDataDeletionCallback(c *fiber.Ctx) error {
+	signedRequest := c.FormValue("signed_request")
+	if signedRequest == "" {
+		var body struct {
+			SignedRequest string `json:"signed_request"`
+		}
+		_ = c.BodyParser(&body)
+		signedRequest = body.SignedRequest
+	}
+	if signedRequest == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "signed_request é obrigatório"})
+	}
+
+	metaUserID, err := h.metaClient.ParseSignedRequest(signedRequest)
+	if err != nil {
+		log.Printf("[DataDeletion] Invalid signed_request: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "signed_request inválido: " + err.Error()})
+	}
+
+	requestID := uuid.New()
+	if _, err := h.db.ExecContext(c.UserContext(),
+		`INSERT INTO data_deletion_requests (id, meta_user_id, source, status) VALUES ($1, $2, 'meta_callback', 'pending')`,
+		requestID, metaUserID,
+	); err != nil {
+		log.Printf("[DataDeletion] Failed to record callback request for user %s: %v", metaUserID, err)
+	}
+
+	return c.JSON(fiber.Map{
+		"url":               publicBaseURL(c) + "/data-deletion?id=" + requestID.String(),
+		"confirmation_code": requestID.String(),
+	})
+}
+
+// HandleManualDataDeletionRequest records a deletion request submitted through the
+// public /data-deletion form by an end-user who identifies themselves by email or phone
+// (used as an alternative to the automated Facebook-initiated callback above).
+func (h *Handler) HandleManualDataDeletionRequest(c *fiber.Ctx) error {
+	var req struct {
+		Contact string `json:"contact"`
+	}
+	if err := c.BodyParser(&req); err != nil || strings.TrimSpace(req.Contact) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Informe um e-mail ou telefone válido"})
+	}
+
+	requestID := uuid.New()
+	if _, err := h.db.ExecContext(c.UserContext(),
+		`INSERT INTO data_deletion_requests (id, contact_identifier, source, status) VALUES ($1, $2, 'manual_form', 'pending')`,
+		requestID, strings.TrimSpace(req.Contact),
+	); err != nil {
+		log.Printf("[DataDeletion] Failed to record manual request: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Falha ao registrar solicitação"})
+	}
+
+	return c.JSON(fiber.Map{
+		"id":                requestID.String(),
+		"confirmation_code": requestID.String(),
+	})
+}
+
+// GetDataDeletionStatus lets the requester (or a Meta reviewer) check on a previously
+// filed deletion request by its id/confirmation code.
+func (h *Handler) GetDataDeletionStatus(c *fiber.Ctx) error {
+	id := c.Params("id")
+	reqID, err := uuid.Parse(id)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID inválido"})
+	}
+
+	var status string
+	var requestedAt time.Time
+	if err := h.db.QueryRowxContext(c.UserContext(), `SELECT status, requested_at FROM data_deletion_requests WHERE id = $1`, reqID).Scan(&status, &requestedAt); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Solicitação não encontrada"})
+	}
+
+	return c.JSON(fiber.Map{"id": id, "status": status, "requested_at": requestedAt})
+}
+
+// ==========================================
+// META APP REVIEW / BUSINESS VERIFICATION COMPLIANCE CHECKLIST
+// ==========================================
+
+// metaComplianceDefault describes one built-in checklist item: the permission or
+// verification step, why WH Panel needs it, and a starting draft of the "use case"
+// text to paste into Meta's App Review form (the company can edit and save their own).
+type metaComplianceDefault struct {
+	Key            string
+	Category       string // permission, verification
+	Title          string
+	Description    string
+	DefaultUseCase string
+}
+
+var metaComplianceCatalog = []metaComplianceDefault{
+	{
+		Key:            "whatsapp_business_messaging",
+		Category:       "permission",
+		Title:          "whatsapp_business_messaging",
+		Description:    "Necessária para enviar e receber mensagens de clientes via WhatsApp Cloud API dentro do WH Panel.",
+		DefaultUseCase: "Nosso aplicativo é uma plataforma de atendimento omnichannel multi-tenant (WH Panel). Cada empresa cliente conecta seu próprio número de WhatsApp Business via Embedded Signup e usa essa permissão para: (1) receber mensagens de clientes finais em uma caixa de entrada unificada, (2) responder essas mensagens em tempo real pelos atendentes ou por um agente de IA configurável, e (3) disparar mensagens de template aprovadas (notificações, confirmações, marketing) dentro das janelas permitidas pela Meta.",
+	},
+	{
+		Key:            "whatsapp_business_management",
+		Category:       "permission",
+		Title:          "whatsapp_business_management",
+		Description:    "Necessária para gerenciar templates de mensagem, números de telefone e configurações da WABA de cada cliente.",
+		DefaultUseCase: "Usamos esta permissão para permitir que cada empresa cliente gerencie, pela nossa interface, os templates de mensagem (HSM) da sua própria conta do WhatsApp Business (criação, edição, exclusão e consulta de status de aprovação), além de consultar os números de telefone e o status da WABA conectada via Embedded Signup. Nenhuma ação é executada em contas de outras empresas — o acesso é sempre limitado à WABA que o próprio cliente conectou.",
+	},
+	{
+		Key:            "business_management",
+		Category:       "permission",
+		Title:          "business_management",
+		Description:    "Necessária durante o Embedded Signup para identificar o Business Manager e a WABA que o cliente está conectando.",
+		DefaultUseCase: "Esta permissão é usada exclusivamente durante o fluxo de Embedded Signup: quando uma empresa cliente conecta seu WhatsApp Business pela nossa interface, precisamos identificar o Business Manager e a WhatsApp Business Account (WABA) que ela autorizou, para vincular corretamente o número de telefone e as credenciais àquele tenant específico dentro da nossa plataforma multi-tenant.",
+	},
+	{
+		Key:         "business_verification",
+		Category:    "verification",
+		Title:       "Verificação de Negócios (Business Verification)",
+		Description: "Processo no Meta Business Manager que confirma a identidade legal da empresa dona do App. Obrigatório para sair do modo de desenvolvimento.",
+	},
+	{
+		Key:         "app_domains_privacy",
+		Category:    "verification",
+		Title:       "Domínios do App + Política de Privacidade",
+		Description: "App Dashboard > Configurações Básicas: Domínios do App e URL da Política de Privacidade precisam apontar para páginas públicas e reais.",
+	},
+	{
+		Key:         "terms_of_service",
+		Category:    "verification",
+		Title:       "Termos de Serviço publicados",
+		Description: "URL pública dos Termos de Serviço cadastrada no App Dashboard.",
+	},
+	{
+		Key:         "app_icon_naming",
+		Category:    "verification",
+		Title:       "Nome e ícone do app em conformidade",
+		Description: "O nome/ícone do app não pode usar 'WhatsApp' ou 'Meta' de forma que sugira afiliação oficial — checar as diretrizes de marca da Meta.",
+	},
+	{
+		Key:         "embedded_signup_e2e",
+		Category:    "verification",
+		Title:       "Embedded Signup testado ponta a ponta",
+		Description: "Conectar um número de teste real pelo fluxo de 1 clique e confirmar que o webhook recebe mensagens de teste corretamente.",
+	},
+	{
+		Key:         "webhook_signature",
+		Category:    "verification",
+		Title:       "Webhook de produção validado",
+		Description: "META_APP_SECRET configurado no servidor e assinatura X-Hub-Signature-256 sendo validada (sem isso, webhooks são rejeitados).",
+	},
+}
+
+// ListMetaComplianceItems returns the full checklist (built-in catalog merged with any
+// saved company overrides) plus live connection-health flags from GetMetaAppConfig-style
+// checks, so the frontend never has to fabricate "approved"/"connected" status.
+func (h *Handler) ListMetaComplianceItems(c *fiber.Ctx) error {
+	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
+	companyID, _ := uuid.Parse(companyIDStr)
+
+	var saved []models.MetaComplianceItem
+	_ = h.db.SelectContext(c.UserContext(), &saved, `SELECT id, company_id, item_key, category, status, use_case_text, checked, created_at, updated_at FROM meta_compliance_items WHERE company_id = $1`, companyID)
+
+	savedByKey := make(map[string]models.MetaComplianceItem, len(saved))
+	for _, s := range saved {
+		savedByKey[s.ItemKey] = s
+	}
+
+	type responseItem struct {
+		Key            string `json:"key"`
+		Category       string `json:"category"`
+		Title          string `json:"title"`
+		Description    string `json:"description"`
+		Status         string `json:"status"`
+		UseCaseText    string `json:"use_case_text"`
+		Checked        bool   `json:"checked"`
+		DefaultUseCase string `json:"default_use_case,omitempty"`
+	}
+
+	items := make([]responseItem, 0, len(metaComplianceCatalog))
+	for _, def := range metaComplianceCatalog {
+		item := responseItem{
+			Key:            def.Key,
+			Category:       def.Category,
+			Title:          def.Title,
+			Description:    def.Description,
+			Status:         "not_started",
+			UseCaseText:    def.DefaultUseCase,
+			DefaultUseCase: def.DefaultUseCase,
+		}
+		if s, ok := savedByKey[def.Key]; ok {
+			item.Status = s.Status
+			item.Checked = s.Checked
+			if s.UseCaseText != "" {
+				item.UseCaseText = s.UseCaseText
+			}
+		}
+		items = append(items, item)
+	}
+
+	return c.JSON(fiber.Map{"items": items})
+}
+
+// UpdateMetaComplianceItem upserts the company's saved status/notes for one checklist item.
+func (h *Handler) UpdateMetaComplianceItem(c *fiber.Ctx) error {
+	companyIDStr := c.Locals(tenant.LocalCompanyIDKey).(string)
+	companyID, _ := uuid.Parse(companyIDStr)
+	itemKey := c.Params("key")
+
+	found := false
+	for _, def := range metaComplianceCatalog {
+		if def.Key == itemKey {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item de checklist desconhecido"})
+	}
+
+	var req models.UpdateMetaComplianceItemRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
+	}
+
+	validStatuses := map[string]bool{"not_started": true, "in_review": true, "approved": true, "rejected": true}
+	status := "not_started"
+	if req.Status != nil {
+		if !validStatuses[*req.Status] {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Status inválido"})
+		}
+		status = *req.Status
+	}
+	useCaseText := ""
+	if req.UseCaseText != nil {
+		useCaseText = *req.UseCaseText
+	}
+	checked := false
+	if req.Checked != nil {
+		checked = *req.Checked
+	}
+
+	query := `INSERT INTO meta_compliance_items (id, company_id, item_key, status, use_case_text, checked)
+		VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5)
+		ON CONFLICT (company_id, item_key) DO UPDATE SET
+			status = EXCLUDED.status,
+			use_case_text = EXCLUDED.use_case_text,
+			checked = EXCLUDED.checked,
+			updated_at = CURRENT_TIMESTAMP
+		RETURNING id, company_id, item_key, category, status, use_case_text, checked, created_at, updated_at`
+
+	var updated models.MetaComplianceItem
+	if err := h.db.GetContext(c.UserContext(), &updated, query, companyID, itemKey, status, useCaseText, checked); err != nil {
+		log.Printf("[MetaCompliance] Failed to save item %s: %v", itemKey, err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save checklist item"})
+	}
+
+	return c.JSON(updated)
+}
+
+// ==========================================
 // WAHA (WHATSAPP HTTP API) HANDLERS
 // ==========================================
 
@@ -702,7 +1012,7 @@ func (h *Handler) GetWAHASessionStatus(c *fiber.Ctx) error {
 		rawPhone = strings.Split(rawPhone, "@")[0]
 		rawPhone = strings.Split(rawPhone, ":")[0]
 		if rawPhone != "" && rawPhone != "<nil>" {
-			_ , _ = h.db.ExecContext(c.UserContext(), `UPDATE channels 
+			_, _ = h.db.ExecContext(c.UserContext(), `UPDATE channels 
 				SET status = 'active', 
 				    config_json = jsonb_set(config_json, '{phone_number}', to_jsonb($1::text)), 
 				    updated_at = CURRENT_TIMESTAMP 

@@ -90,6 +90,8 @@ func main() {
 			"migrations/000011_billing_and_ai.up.sql",
 			"migrations/000012_crm_robust.up.sql",
 			"migrations/000013_crm_clickup.up.sql",
+			"migrations/000014_meta_compliance.up.sql",
+			"migrations/000015_data_deletion_requests.up.sql",
 		}
 		for _, file := range migrationFiles {
 			if _, err := os.Stat(file); err == nil {
@@ -146,7 +148,7 @@ func main() {
 	log.SetFlags(0)
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{
-		Format: "{\"time\":\"${time}\",\"level\":\"info\",\"method\":\"${method}\",\"path\":\"${path}\",\"status\":${status},\"latency\":\"${latency}\",\"ip\":\"${ip}\"}\n",
+		Format:     "{\"time\":\"${time}\",\"level\":\"info\",\"method\":\"${method}\",\"path\":\"${path}\",\"status\":${status},\"latency\":\"${latency}\",\"ip\":\"${ip}\"}\n",
 		TimeFormat: time.RFC3339,
 	}))
 	app.Use(cors.New(cors.Config{
@@ -245,7 +247,8 @@ func main() {
 	// Public Routes
 	authHandler.RegisterRoutes(api)
 	tenantHandler.RegisterPublicRoutes(api)
-	channelsHandler.RegisterPublicRoutes(app) // Webhook receiver endpoints
+	channelsHandler.RegisterPublicRoutes(app)    // Webhook receiver endpoints
+	channelsHandler.RegisterPublicAPIRoutes(api) // Meta Data Deletion Request Callback
 
 	// Protected Routes (Require Authentication & Tenant Context)
 	protected := api.Group("/", tenant.AuthAndTenantMiddleware(jwtMgr, db))
