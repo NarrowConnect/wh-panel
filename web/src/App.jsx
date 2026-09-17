@@ -90,7 +90,7 @@ const MainLayout = () => {
 
   return (
     <WebSocketProvider>
-      <div className="flex h-screen w-screen overflow-hidden bg-[#070b14]">
+      <div className="flex h-screen w-screen overflow-hidden">
         {/* Sidebar Navigation */}
         <Sidebar
           activeTab={activeTab}
@@ -102,7 +102,7 @@ const MainLayout = () => {
         {/* Main Body */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header activeTitle={tabTitleMap[activeTab] || 'WH Panel'} onNavigate={setActiveTab} />
-          <main className="flex-1 overflow-hidden bg-[#070b14]">
+          <main className="flex-1 overflow-hidden">
             {renderActiveTab()}
           </main>
         </div>

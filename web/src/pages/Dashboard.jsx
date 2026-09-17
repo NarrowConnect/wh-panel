@@ -11,7 +11,6 @@ import {
   Filter,
   Calendar,
   Sparkles,
-  ArrowUpRight,
   ArrowDownRight,
   Bot,
   RefreshCw,
@@ -85,15 +84,15 @@ export const Dashboard = () => {
   const sentimentScore = kpis?.overall_sentiment_score ? Number(kpis.overall_sentiment_score).toFixed(2) : '0.00';
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] bg-[#07080c] select-none">
-      {/* 1. Header & Filters Section (Stakent Style) */}
+    <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-4rem)] select-none">
+      {/* 1. Header & Filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 mb-1">
             <span>Métricas em tempo real</span>
-            <Clock className="w-3.5 h-3.5 text-purple-400" />
-            <span className="px-2 py-0.5 rounded-full bg-[#141620] border border-white/[0.06] text-[10px] text-slate-300 font-bold">
-              {channels.length} {channels.length === 1 ? 'Canal Ativo' : 'Canais Ativos'}
+            <span className="w-1 h-1 rounded-full bg-slate-600" />
+            <span className="text-slate-300 font-bold">
+              {channels.length} {channels.length === 1 ? 'canal ativo' : 'canais ativos'}
             </span>
           </div>
           <h2 className="text-2xl font-black text-white tracking-tight font-sans">
@@ -103,14 +102,14 @@ export const Dashboard = () => {
 
         {/* Filter Pills */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 bg-[#12141c] p-1 rounded-full border border-white/[0.06]">
+          <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-full border border-white/[0.06]">
             {['24h', '7d', '30d'].map((p) => (
               <button
                 key={p}
                 onClick={() => setPeriodPreset(p)}
                 className={`px-3 py-1 text-xs font-bold rounded-full transition-all ${
                   periodPreset === p
-                    ? 'bg-[#202434] text-white shadow-sm border border-white/[0.08]'
+                    ? 'bg-white/[0.09] text-white shadow-sm'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -121,7 +120,7 @@ export const Dashboard = () => {
 
           <button
             onClick={() => fetchDashboardData(periodPreset)}
-            className="p-2 rounded-full bg-[#12141c] hover:bg-[#181b26] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-full bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
             title="Atualizar Métricas"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-400' : ''}`} />
@@ -129,23 +128,18 @@ export const Dashboard = () => {
         </div>
       </div>
 
-      {/* 2. Top Metric Cards & Liquid IA Engine Banner (Stakent Style 3+1 Layout) */}
+      {/* 2. Top Metric Cards & Banner */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Card 1: Total de Conversas */}
-        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/20">
-                <MessageSquare className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Volume</p>
-                <p className="text-xs font-bold text-white">Total de Conversas</p>
-              </div>
+        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+              <MessageSquare className="w-4 h-4" />
             </div>
-            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </span>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Volume</p>
+              <p className="text-xs font-bold text-white">Total de Conversas</p>
+            </div>
           </div>
 
           <div>
@@ -160,7 +154,7 @@ export const Dashboard = () => {
           </div>
 
           <div className="relative pt-2">
-            <div className="w-full bg-[#181a26] h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-white/[0.06] h-1.5 rounded-full overflow-hidden">
               <div
                 className="bg-emerald-400 h-full rounded-full transition-all duration-500"
                 style={{ width: totalConversations > 0 ? `${Math.min(100, (resolvedConversations / totalConversations) * 100)}%` : '0%' }}
@@ -174,20 +168,15 @@ export const Dashboard = () => {
         </div>
 
         {/* Card 2: Tempo Médio de 1ª Resposta */}
-        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center font-bold text-xs border border-purple-500/20">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Agilidade</p>
-                <p className="text-xs font-bold text-white">TMPR (1ª Resposta)</p>
-              </div>
+        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-500/20">
+              <Clock className="w-4 h-4" />
             </div>
-            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </span>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Agilidade</p>
+              <p className="text-xs font-bold text-white">TMPR (1ª Resposta)</p>
+            </div>
           </div>
 
           <div>
@@ -201,7 +190,7 @@ export const Dashboard = () => {
           </div>
 
           <div className="relative pt-2">
-            <div className="w-full bg-[#181a26] h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-white/[0.06] h-1.5 rounded-full overflow-hidden">
               <div className="bg-purple-500 h-full rounded-full w-[70%]" />
             </div>
             <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
@@ -212,20 +201,15 @@ export const Dashboard = () => {
         </div>
 
         {/* Card 3: Satisfação & Sentimento */}
-        <div className="p-4 rounded-3xl bg-[#0e1017] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center font-bold text-xs border border-amber-500/20">
-                <Smile className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qualidade</p>
-                <p className="text-xs font-bold text-white">Sentimento do Cliente</p>
-              </div>
+        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/20">
+              <Smile className="w-4 h-4" />
             </div>
-            <span className="p-1.5 rounded-full bg-[#151722] text-slate-400">
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </span>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qualidade</p>
+              <p className="text-xs font-bold text-white">Sentimento do Cliente</p>
+            </div>
           </div>
 
           <div>
@@ -239,7 +223,7 @@ export const Dashboard = () => {
           </div>
 
           <div className="relative pt-2">
-            <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-[#181a26]">
+            <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-white/[0.06]">
               {(() => {
                 const pos = sentiment?.positive_count || 0;
                 const neu = sentiment?.neutral_count || 0;
@@ -261,13 +245,12 @@ export const Dashboard = () => {
           </div>
         </div>
 
-        {/* Card 4: Liquid IA Engine Banner (Stakent Right Box) */}
-        <div className="p-5 rounded-3xl bg-gradient-to-br from-[#1b1435] via-[#111022] to-[#0c0d14] border border-purple-500/25 shadow-2xl shadow-purple-500/10 flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
+        {/* Card 4: Accent Banner */}
+        <div className="relative overflow-hidden glass-card p-5 rounded-2xl flex flex-col justify-between space-y-4 border-purple-500/20">
+          <div className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 rounded-full bg-purple-500/20 blur-3xl" />
+          <div className="relative space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-extrabold text-sm text-white flex items-center gap-1">
-                WH Panel
-              </span>
+              <span className="font-extrabold text-sm text-white">WH Panel</span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 Oficial Meta
               </span>
@@ -280,33 +263,29 @@ export const Dashboard = () => {
             </p>
           </div>
 
-          <div className="space-y-2">
-            <a
-              href="/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-1.5"
-            >
-              <Zap className="w-4 h-4 fill-white" />
-              <span>Swagger API Docs</span>
-            </a>
-          </div>
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="relative w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Zap className="w-4 h-4 fill-white" />
+            <span>Swagger API Docs</span>
+          </a>
         </div>
       </div>
 
       {/* 3. Main Wide Analytics Box */}
-      <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-6">
+      <div className="glass-card p-6 rounded-2xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
               <span>Status dos Canais Conectados</span>
               <span className={`w-1.5 h-1.5 rounded-full ${channels.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
             </div>
-            <div className="flex items-center gap-3">
-              <h3 className="text-xl font-black text-white tracking-tight font-sans flex items-center gap-2">
-                <span>Operação Multi-Tenant Ativa</span>
-              </h3>
-            </div>
+            <h3 className="text-xl font-black text-white tracking-tight font-sans">
+              Operação Multi-Tenant Ativa
+            </h3>
           </div>
         </div>
 
@@ -324,7 +303,7 @@ export const Dashboard = () => {
             </div>
           </div>
 
-          <div className="lg:col-span-6 p-4 rounded-2xl bg-[#12141c] border border-white/[0.06] space-y-3">
+          <div className="lg:col-span-6 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-3">
             <p className="text-xs font-bold text-white">Distribuição por Canal Real</p>
             {channels.length > 0 ? (
               <div className="space-y-2">
@@ -343,25 +322,25 @@ export const Dashboard = () => {
 
         {/* 4 Bottom Metric Columns */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t border-white/[0.06]">
-          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abertas</p>
             <p className="text-sm font-black text-white">{openConversations}</p>
             <p className="text-[10px] text-slate-500">Aguardando atendimento</p>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Resolvidas</p>
             <p className="text-sm font-black text-white">{resolvedConversations}</p>
             <p className="text-[10px] text-slate-500">Encerradas com sucesso</p>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Taxa de Resolução</p>
             <p className="text-sm font-black text-white">{resolutionRate}%</p>
             <p className="text-[10px] text-slate-500">Eficiência geral</p>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1">
+          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TMPR</p>
             <p className="text-sm font-black text-white">{avgFirstResp}</p>
             <p className="text-[10px] text-slate-500">Primeira resposta</p>
@@ -370,9 +349,9 @@ export const Dashboard = () => {
       </div>
 
       {/* 4. Bottom Grid: Atendentes & Funil de Conversas Reais */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Atendentes Performance Real */}
-        <div className="p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-4">
+        <div className="glass-card p-5 rounded-2xl space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <Users className="w-4 h-4 text-purple-400" />
@@ -384,7 +363,7 @@ export const Dashboard = () => {
           {attendants.length > 0 ? (
             <div className="space-y-2">
               {attendants.map((att) => (
-                <div key={att.user_id} className="p-3 rounded-2xl bg-[#12141c] border border-white/[0.04] flex items-center justify-between">
+                <div key={att.user_id} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-300 font-bold text-xs flex items-center justify-center">
                       {(att.user_name || 'U').charAt(0).toUpperCase()}
@@ -407,7 +386,7 @@ export const Dashboard = () => {
         </div>
 
         {/* Funil de Status Real */}
-        <div className="p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06] space-y-4">
+        <div className="glass-card p-5 rounded-2xl space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -423,12 +402,12 @@ export const Dashboard = () => {
               {funnel.map((st, i) => {
                 const pct = totalConversations > 0 ? Math.round((st.count / totalConversations) * 100) : 0;
                 return (
-                  <div key={i} className="p-3 rounded-2xl bg-[#12141c] border border-white/[0.04] space-y-1.5">
+                  <div key={i} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1.5">
                     <div className="flex justify-between text-xs">
                       <span className="font-bold text-white capitalize">{st.status}</span>
                       <span className="font-mono text-slate-400">{st.count} conversas ({pct}%)</span>
                     </div>
-                    <div className="w-full bg-[#181a26] h-2 rounded-full overflow-hidden">
+                    <div className="w-full bg-white/[0.06] h-2 rounded-full overflow-hidden">
                       <div className="h-full bg-gradient-to-r from-purple-500 to-emerald-400" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
