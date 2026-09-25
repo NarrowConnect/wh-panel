@@ -60,10 +60,13 @@ export const WebSocketProvider = ({ children }) => {
           const data = JSON.parse(event.data);
           setLastEvent(data);
 
+          // The Go hub sends { event, company_id, data } (models.WSEvent);
+          // keep { type, payload } working for locally emitted events.
           const eventType = data.type || data.event || 'message';
+          const body = data.payload ?? data.data ?? data;
           const handlers = listenersRef.current.get(eventType);
           if (handlers) {
-            handlers.forEach((fn) => fn(data.payload || data));
+            handlers.forEach((fn) => fn(body));
           }
 
           // Global wildcard listener

@@ -1,339 +1,278 @@
-import React, { useState } from 'react';
-import {
-  Plug,
-  Plus,
-  Code2,
-  Play,
-  Key,
-  Webhook,
-  CheckCircle2,
-  Copy,
-  Send,
-  Trash2,
-  Shield,
-  Zap
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Play, Webhook, Copy, Check, Trash2, Loader2 } from 'lucide-react';
+import ApiClient from '../api/client';
+import PageHeader from '../components/PageHeader';
+import Modal from '../components/Modal';
+
+// Events the backend actually publishes (integrations/publisher.go callers).
+const events = {
+  'conversation.created': 'Nova conversa',
+  'message.received': 'Mensagem recebida',
+  'message.sent': 'Mensagem enviada',
+  'crm.card_moved': 'Card movido no CRM',
+};
+
+const codeCls = 'field font-mono text-xs resize-y';
+
+const sampleTemplate = `{
+  "nome": "payload.name",
+  "telefone": "payload.phone",
+  "origem": "whatsapp"
+}`;
+
+const samplePayload = `{
+  "name": "Maria Souza",
+  "phone": "5511999990000",
+  "email": "maria@exemplo.com"
+}`;
 
 export const Integrations = () => {
-  const [activeTab, setActiveTab] = useState('webhooks'); // 'webhooks', 'api_keys', 'sandbox'
-  const [webhooks, setWebhooks] = useState([
-    { id: 'w1', event: 'conversation.created', url: 'https://api.meusistema.com/webhooks/new-chat', secret: 'whsec_8921a9c1', active: true },
-    { id: 'w2', event: 'message.received', url: 'https://n8n.meusistema.com/webhook/incoming-msg', secret: 'whsec_4821f8b3', active: true },
-    { id: 'w3', event: 'crm.deal_won', url: 'https://erp.meusistema.com/webhook/deal-won', secret: 'whsec_1102e3a7', active: true },
-  ]);
-
-  const [apiKeys, setApiKeys] = useState([
-    { id: 'k1', name: 'Integração n8n / Zapier', token: 'wh_live_99a8b7c6d5e4f3a2b1c0', created_at: '2026-08-20' },
-    { id: 'k2', name: 'ERP Financeiro Webhook', token: 'wh_live_12e34f56a78b90cd12ef', created_at: '2026-08-25' },
-  ]);
-
-  const [showAddWebhookModal, setShowAddWebhookModal] = useState(false);
-  const [newHookEvent, setNewHookEvent] = useState('conversation.created');
-  const [newHookUrl, setNewHookUrl] = useState('');
-
-  // Sandbox Code Tester
-  const [sandboxCode, setSandboxCode] = useState(`// Sandbox JS Transformation (Goja VM)
-function transform(payload) {
-  return {
-    contact_name: payload.name ? payload.name.toUpperCase() : 'CLIENTE',
-    clean_phone: payload.phone.replace(/\\D/g, ''),
-    is_vip: payload.budget > 50000,
-    timestamp: new Date().toISOString()
-  };
-}`);
-  const [samplePayload, setSamplePayload] = useState(JSON.stringify({
-    name: 'Carlos Mendes',
-    phone: '+55 11 98888-7777',
-    budget: 85000
-  }, null, 2));
-
-  const [sandboxOutput, setSandboxOutput] = useState('');
-  const [testing, setTesting] = useState(false);
+  const [view, setView] = useState('webhooks');
+  const [webhooks, setWebhooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [copiedId, setCopiedId] = useState(null);
 
-  const handleTestSandbox = () => {
-    setTesting(true);
-    setTimeout(() => {
-      try {
-        const input = JSON.parse(samplePayload);
-        setSandboxOutput(JSON.stringify({
-          contact_name: input.name?.toUpperCase() || 'CLIENTE',
-          clean_phone: input.phone?.replace(/\D/g, '') || '',
-          is_vip: (input.budget || 0) > 50000,
-          timestamp: new Date().toISOString(),
-          vm_execution_time_ms: 0.8,
-          status: 'SUCCESS'
-        }, null, 2));
-      } catch (err) {
-        setSandboxOutput(`Erro ao executar script JS: ${err.message}`);
-      }
-      setTesting(false);
-    }, 300);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ name: '', event: 'conversation.created', url: '', secret: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const [template, setTemplate] = useState(sampleTemplate);
+  const [payload, setPayload] = useState(samplePayload);
+  const [output, setOutput] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  const fetchWebhooks = async () => {
+    try {
+      const data = await ApiClient.get('/webhooks-subscriptions');
+      setWebhooks(Array.isArray(data) ? data : data?.webhooks || []);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(err.message || 'Não foi possível carregar os webhooks.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCreateWebhook = (e) => {
+  useEffect(() => {
+    fetchWebhooks();
+  }, []);
+
+  const openModal = () => {
+    setForm({ name: '', event: 'conversation.created', url: '', secret: '' });
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const handleCreate = async (e) => {
     e.preventDefault();
-    const newW = {
-      id: `w_${Date.now()}`,
-      event: newHookEvent,
-      url: newHookUrl,
-      secret: `whsec_${Math.random().toString(36).substring(2, 10)}`,
-      active: true,
-    };
-    setWebhooks((prev) => [...prev, newW]);
-    setShowAddWebhookModal(false);
-    setNewHookUrl('');
+    setSubmitting(true);
+    setFormError('');
+    try {
+      await ApiClient.post('/webhooks-subscriptions', {
+        name: form.name.trim(),
+        event_type: form.event,
+        target_url: form.url.trim(),
+        secret_token: form.secret.trim() || null,
+      });
+      setShowModal(false);
+      fetchWebhooks();
+    } catch (err) {
+      setFormError(err.message || 'Não foi possível salvar o webhook.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const copyText = (text, id) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleDelete = async (hook) => {
+    if (!window.confirm(`Excluir o webhook "${hook.name}"?`)) return;
+    try {
+      await ApiClient.delete(`/webhooks-subscriptions/${hook.id}`);
+      fetchWebhooks();
+    } catch (err) {
+      setLoadError(err.message || 'Não foi possível excluir o webhook.');
+    }
+  };
+
+  const copySecret = async (hook) => {
+    try {
+      await navigator.clipboard.writeText(hook.secret_token);
+      setCopiedId(hook.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      /* clipboard blocked: nothing to confirm */
+    }
+  };
+
+  const runTest = async () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(payload);
+    } catch (err) {
+      setOutput({ ok: false, text: `O payload de teste não é um JSON válido: ${err.message}` });
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await ApiClient.post('/integrations/transform-test', { script: template, payload: parsed });
+      setOutput({ ok: true, text: JSON.stringify(res.output, null, 2) });
+    } catch (err) {
+      setOutput({ ok: false, text: err.message });
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
-      {/* 3.8 Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-card p-4 rounded-2xl border border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center">
-            <Plug className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Integrações, Webhooks & Sandbox JS (3.8)</span>
-            </h2>
-            <p className="text-xs text-slate-400">
-              Dispare webhooks em tempo real por evento e execute scripts de transformação seguros
-            </p>
-          </div>
-        </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-5">
+        <PageHeader
+          description="Envie eventos do WH Panel para outros sistemas e teste o mapeamento de campos do payload."
+          actions={
+            <>
+              <div className="segmented" role="group" aria-label="Visualização">
+                <button type="button" aria-pressed={view === 'webhooks'} onClick={() => setView('webhooks')}>Webhooks</button>
+                <button type="button" aria-pressed={view === 'transform'} onClick={() => setView('transform')}>Transformação</button>
+              </div>
+              {view === 'webhooks' && (
+                <button type="button" onClick={openModal} className="btn btn-primary">
+                  <Plus strokeWidth={2} />
+                  Novo webhook
+                </button>
+              )}
+            </>
+          }
+        />
 
-        <div className="flex items-center gap-2">
-          {/* Tab Switcher */}
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-            <button
-              onClick={() => setActiveTab('webhooks')}
-              className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                activeTab === 'webhooks' ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Webhooks de Saída
-            </button>
-            <button
-              onClick={() => setActiveTab('api_keys')}
-              className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                activeTab === 'api_keys' ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Chaves de API
-            </button>
-            <button
-              onClick={() => setActiveTab('sandbox')}
-              className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                activeTab === 'sandbox' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'
-              }`}
-            >
-              Sandbox JS (Goja VM)
-            </button>
-          </div>
+        {view === 'webhooks' && (
+          <>
+            {loadError && (
+              <p role="alert" className="alert-error">{loadError}</p>
+            )}
 
-          {activeTab === 'webhooks' && (
-            <button
-              onClick={() => setShowAddWebhookModal(true)}
-              className="px-3.5 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-95 text-white text-xs font-semibold shadow-lg shadow-brand-500/25 flex items-center gap-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Novo Webhook</span>
-            </button>
-          )}
-        </div>
+            {loading ? (
+              <div className="py-16 flex justify-center">
+                <Loader2 className="w-5 h-5 text-slate-500 animate-spin" aria-label="Carregando" />
+              </div>
+            ) : webhooks.length === 0 ? (
+              !loadError && (
+                <div className="glass-card px-6 py-14 text-center space-y-3">
+                  <Webhook className="w-5 h-5 text-slate-500 mx-auto" strokeWidth={1.75} />
+                  <h2 className="text-sm font-medium text-white">Nenhum webhook cadastrado</h2>
+                  <p className="text-[13px] text-slate-400 max-w-md mx-auto">
+                    Receba um POST no seu sistema (n8n, Make, ERP) sempre que um evento acontecer no painel.
+                  </p>
+                  <button type="button" onClick={openModal} className="btn btn-primary mt-2">
+                    <Plus strokeWidth={2} />
+                    Novo webhook
+                  </button>
+                </div>
+              )
+            ) : (
+              <ul className="glass-card divide-y divide-white/[0.05]">
+                {webhooks.map((hook) => (
+                  <li key={hook.id} className="px-5 py-3.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-medium text-white truncate">{hook.name}</span>
+                        <span className="text-xs text-slate-500">{events[hook.event_type] || hook.event_type}</span>
+                        {!hook.is_active && (
+                          <span className="px-1.5 h-5 inline-flex items-center rounded-md border border-white/[0.08] text-[11px] text-slate-400">Inativo</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 font-mono truncate">{hook.target_url}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {hook.secret_token && (
+                        <button type="button" onClick={() => copySecret(hook)} className="btn btn-secondary">
+                          {copiedId === hook.id ? <Check strokeWidth={2} /> : <Copy strokeWidth={1.75} />}
+                          {copiedId === hook.id ? 'Copiado' : 'Copiar segredo'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(hook)}
+                        className="btn btn-icon text-slate-500 hover:text-rose-300"
+                        aria-label={`Excluir ${hook.name}`}
+                        title="Excluir"
+                      >
+                        <Trash2 strokeWidth={1.75} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {view === 'transform' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <section className="glass-card p-5 space-y-4">
+              <div>
+                <label htmlFor="tf-template" className="field-label">Mapeamento</label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Um objeto JSON em que cada valor <code className="font-mono text-slate-300">"payload.campo"</code> é substituído pelo campo do evento. Outros valores passam como estão.
+                </p>
+                <textarea id="tf-template" rows={7} spellCheck={false} value={template} onChange={(e) => setTemplate(e.target.value)} className={codeCls} />
+              </div>
+              <div>
+                <label htmlFor="tf-payload" className="field-label">Payload de teste</label>
+                <textarea id="tf-payload" rows={6} spellCheck={false} value={payload} onChange={(e) => setPayload(e.target.value)} className={codeCls} />
+              </div>
+              <button type="button" onClick={runTest} disabled={testing} className="btn btn-primary">
+                {testing ? <Loader2 className="animate-spin" /> : <Play strokeWidth={1.75} />}
+                {testing ? 'Testando…' : 'Testar mapeamento'}
+              </button>
+            </section>
+
+            <section className="glass-card p-5 flex flex-col gap-2 min-h-[16rem]">
+              <h2 className="text-xs text-slate-300">Resultado</h2>
+              <div className="flex-1 rounded-lg bg-white/[0.02] border border-white/[0.06] p-3 overflow-auto">
+                {output ? (
+                  <pre className={`whitespace-pre-wrap font-mono text-xs leading-relaxed ${output.ok ? 'text-slate-200' : 'text-rose-300'}`}>{output.text}</pre>
+                ) : (
+                  <p className="text-xs text-slate-500">O resultado do mapeamento aparece aqui.</p>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
 
-      {activeTab === 'webhooks' && (
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Webhook className="w-4 h-4 text-brand-400" />
-              <span>Webhooks Cadastrados por Evento</span>
-            </h3>
+      {showModal && (
+        <Modal
+          title="Novo webhook"
+          onClose={() => setShowModal(false)}
+          onSubmit={handleCreate}
+          submitting={submitting}
+          submitLabel="Salvar webhook"
+          error={formError}
+        >
+          <div>
+            <label htmlFor="wh-name" className="field-label">Nome</label>
+            <input id="wh-name" autoFocus required type="text" placeholder="Ex.: n8n – novos leads" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" />
           </div>
-
-          <div className="space-y-3">
-            {(Array.isArray(webhooks) ? webhooks : []).map((hook) => (
-              <div
-                key={hook.id}
-                className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-brand-400 font-mono text-sm">{hook.event}</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                      Ativo
-                    </span>
-                  </div>
-                  <p className="text-slate-300 font-mono text-[11px] truncate">{hook.url}</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => copyText(hook.secret, hook.id)}
-                    className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 text-[11px] flex items-center gap-1 hover:text-white"
-                  >
-                    <Key className="w-3 h-3 text-amber-400" />
-                    <span>{copiedId === hook.id ? 'Segredo Copiado!' : 'Copiar Secret'}</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div>
+            <label htmlFor="wh-event" className="field-label">Evento</label>
+            <select id="wh-event" value={form.event} onChange={(e) => setForm({ ...form, event: e.target.value })} className="field">
+              {Object.entries(events).map(([id, label]) => (
+                <option key={id} value={id}>{label} ({id})</option>
+              ))}
+            </select>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'api_keys' && (
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Key className="w-4 h-4 text-amber-400" />
-            <span>Tokens de Acesso da API Externa</span>
-          </h3>
-
-          <div className="space-y-3">
-            {(Array.isArray(apiKeys) ? apiKeys : []).map((k) => (
-              <div
-                key={k.id}
-                className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-              >
-                <div>
-                  <h4 className="font-bold text-white text-sm">{k.name}</h4>
-                  <p className="text-slate-500 text-[11px] font-mono mt-0.5">Criado em: {k.created_at}</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <code className="p-1.5 bg-slate-950 rounded text-brand-400 font-mono text-xs">
-                    {k.token.slice(0, 14)}••••••••
-                  </code>
-                  <button
-                    onClick={() => copyText(k.token, k.id)}
-                    className="p-1.5 text-slate-400 hover:text-white"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div>
+            <label htmlFor="wh-url" className="field-label">URL de destino</label>
+            <input id="wh-url" required type="url" placeholder="https://api.suaempresa.com/webhook" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="field" />
           </div>
-        </div>
-      )}
-
-      {activeTab === 'sandbox' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* JS Code Editor */}
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Code2 className="w-4 h-4 text-purple-400" />
-                <span>Script de Transformação (JavaScript VM)</span>
-              </h3>
-              <button
-                onClick={handleTestSandbox}
-                disabled={testing}
-                className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>{testing ? 'Executando...' : 'Executar Sandbox'}</span>
-              </button>
-            </div>
-
-            <textarea
-              rows={8}
-              value={sandboxCode}
-              onChange={(e) => setSandboxCode(e.target.value)}
-              className="w-full bg-[#0a0f1d] border border-slate-700/80 rounded-xl p-3 text-xs text-purple-200 font-mono resize-none focus:outline-none focus:border-purple-500"
-            />
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1">Payload de Teste (JSON)</label>
-              <textarea
-                rows={4}
-                value={samplePayload}
-                onChange={(e) => setSamplePayload(e.target.value)}
-                className="w-full bg-[#0a0f1d] border border-slate-700/80 rounded-xl p-3 text-xs text-slate-300 font-mono resize-none focus:outline-none focus:border-purple-500"
-              />
-            </div>
+          <div>
+            <label htmlFor="wh-secret" className="field-label">
+              Segredo <span className="text-slate-500">(opcional)</span>
+            </label>
+            <input id="wh-secret" type="text" autoComplete="off" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} className="field font-mono" />
           </div>
-
-          {/* Execution Output */}
-          <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-3 flex flex-col">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span>Resultado da Execução no Goja Sandbox</span>
-            </h3>
-
-            <div className="flex-1 p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 overflow-y-auto">
-              {sandboxOutput ? (
-                <pre className="whitespace-pre-wrap">{sandboxOutput}</pre>
-              ) : (
-                <span className="text-slate-500">Clique em "Executar Sandbox" para rodar o código no Goja VM.</span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Webhook Modal */}
-      {showAddWebhookModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card rounded-2xl border border-slate-800 w-full max-w-md p-6 space-y-4 animate-fade-in">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Plus className="w-4 h-4 text-brand-400" />
-              <span>Novo Webhook de Evento</span>
-            </h3>
-
-            <form onSubmit={handleCreateWebhook} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Evento Disparador</label>
-                <select
-                  value={newHookEvent}
-                  onChange={(e) => setNewHookEvent(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                >
-                  <option value="conversation.created">conversation.created (Nova Conversa)</option>
-                  <option value="message.received">message.received (Mensagem Recebida)</option>
-                  <option value="conversation.resolved">conversation.resolved (Conversa Finalizada)</option>
-                  <option value="crm.deal_won">crm.deal_won (Oportunidade Fechada no CRM)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">URL de Destino (HTTPS)</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://api.empresa.com/webhook/endpoint"
-                  value={newHookUrl}
-                  onChange={(e) => setNewHookUrl(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddWebhookModal(false)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-semibold"
-                >
-                  Salvar Webhook
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

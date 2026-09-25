@@ -34,12 +34,12 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-purple-500/30">
+    <div className="min-h-screen bg-background text-slate-100 flex flex-col font-sans selection:bg-purple-500/30">
       {/* Top Navbar */}
-      <header className="border-b border-white/[0.08] bg-[#0c101c]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-white/[0.08] bg-surface/80 backdrop-blur-xl sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/25">
+            <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center shadow-lg ">
               <ShieldCheck className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -65,7 +65,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
       </header>
 
       {/* Hero / Navigation Tabs */}
-      <div className="border-b border-white/[0.06] bg-gradient-to-b from-purple-950/20 via-slate-900/40 to-transparent py-8 px-4">
+      <div className="border-b border-white/[0.06] bg-purple-950/20 py-8 px-4">
         <div className="max-w-4xl mx-auto text-center space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold">
             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -84,7 +84,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
               onClick={() => setActiveTab('privacy')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                 activeTab === 'privacy'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  ? 'bg-purple-600 text-white shadow-lg '
                   : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
               }`}
             >
@@ -95,7 +95,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
               onClick={() => setActiveTab('terms')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                 activeTab === 'terms'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  ? 'bg-purple-600 text-white shadow-lg '
                   : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
               }`}
             >
@@ -106,7 +106,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
               onClick={() => setActiveTab('data-deletion')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                 activeTab === 'data-deletion'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  ? 'bg-purple-600 text-white shadow-lg '
                   : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08]'
               }`}
             >
@@ -120,7 +120,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
       {/* Content Area */}
       <main className="max-w-4xl mx-auto w-full px-4 py-8 flex-1">
         {activeTab === 'privacy' && (
-          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-[#0c101d] p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
+          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-surface p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
             <div className="border-b border-white/[0.06] pb-4">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Lock className="w-5 h-5 text-purple-400" />
@@ -193,7 +193,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
         )}
 
         {activeTab === 'terms' && (
-          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-[#0c101d] p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
+          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-surface p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
             <div className="border-b border-white/[0.06] pb-4">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Scale className="w-5 h-5 text-purple-400" />
@@ -246,7 +246,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
         )}
 
         {activeTab === 'data-deletion' && (
-          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-[#0c101d] p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
+          <div className="space-y-6 text-sm text-slate-300 leading-relaxed bg-surface p-6 sm:p-8 rounded-2xl border border-white/[0.07] shadow-xl">
             <div className="border-b border-white/[0.06] pb-4">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Trash2 className="w-5 h-5 text-rose-400" />
@@ -326,7 +326,7 @@ export const PublicLegal = ({ initialPage = 'privacy', onBackToApp }) => {
                   <button
                     type="submit"
                     disabled={deletionSubmitting}
-                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white text-xs font-bold transition-all shadow-lg shadow-rose-600/30 flex items-center gap-2 disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white text-xs font-bold transition-all shadow-lg flex items-center gap-2 disabled:opacity-50"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>{deletionSubmitting ? 'Enviando...' : 'Confirmar Solicitação de Exclusão'}</span>

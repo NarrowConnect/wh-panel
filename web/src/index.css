@@ -3,26 +3,55 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --bg: #0b0c0f;
+    --surface: #111216;
+    --surface-hover: #16171b;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.13);
+    --text: #e8e8ec;
+    --accent: #7468bd;
+    --accent-soft: rgba(116, 104, 189, 0.35);
+    color-scheme: dark;
+  }
+
   body {
-    font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #07080c;
-    background-image:
-      radial-gradient(ellipse 900px 640px at 10% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
-      radial-gradient(ellipse 720px 520px at 105% 0%, rgba(56, 189, 248, 0.07), transparent 55%),
-      radial-gradient(ellipse 820px 620px at 10% 105%, rgba(16, 185, 129, 0.05), transparent 55%);
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-    color: #f1f5f9;
+    font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: #ffffff;
+  }
+
+  input,
+  textarea {
+    caret-color: var(--accent);
+  }
+
+  :focus-visible {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  table,
+  .tabular-nums,
+  time {
+    font-variant-numeric: tabular-nums;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
   }
 
   ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -30,123 +59,179 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.18);
   }
+}
+
+/* The one surface: flat, hairline border, no glass. */
+@layer utilities {
+  .glass-card {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+  }
+}
+
+/*
+ * Shared controls live in the components layer so utilities (pl-8, mr-auto,
+ * text colors) can still adjust them where they are used.
+ */
+@layer components {
+  /*
+   * Buttons. One height (32px), one radius, never wrapping. Pages used to
+   * hand-roll these with pills, two-line labels and per-page paddings.
+   */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+  }
+  .btn-primary {
+    background-color: var(--accent);
+    color: #ffffff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #8177c8;
+  }
+  .btn-secondary {
+    border: 1px solid var(--line-strong);
+    color: #d4d4da;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: #ffffff;
+  }
+  .btn-icon {
+    width: 2rem;
+    padding: 0;
+  }
+
+  /* Form fields. */
+  .field {
+    width: 100%;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 13px;
+    color: #ffffff;
+    transition: border-color 0.15s ease-out;
+  }
+  textarea.field {
+    height: auto;
+    padding: 0.5rem 0.75rem;
+    line-height: 1.5;
+  }
+  .field::placeholder {
+    color: #71717a;
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 12px;
+    color: #d4d4d8;
+  }
+
+  .alert-error {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(244, 63, 94, 0.2);
+    background-color: rgba(244, 63, 94, 0.06);
+    font-size: 13px;
+    color: #fecdd3;
+  }
+
+  /* Segmented control: page-level view switches (Kanban/Lista, Filas/Regras...). */
+  .segmented {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .segmented::-webkit-scrollbar {
+    display: none;
+  }
+  .segmented > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.625rem;
+    padding: 0 0.625rem;
+    border-radius: 0.375rem;
+    font-size: 12.5px;
+    white-space: nowrap;
+    color: #a1a1aa;
+    transition: background-color 0.15s ease-out, color 0.15s ease-out;
+  }
+  .segmented > button:hover {
+    color: #f4f4f5;
+  }
+  .segmented > button[aria-pressed='true'],
+  .segmented > button[aria-selected='true'] {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+  .segmented > button svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
 }
 
 @layer utilities {
-  .stakent-card {
-    background-color: #0e1017;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 1.25rem;
-  }
-
-  .stakent-card-hover {
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .stakent-card-hover:hover {
-    border-color: rgba(255, 255, 255, 0.14);
-    background-color: #121520;
-    transform: translateY(-1px);
-  }
-
-  .stakent-card-highlight {
-    background: linear-gradient(135deg, #181432 0%, #10101f 60%, #0c0d14 100%);
-    border: 1px solid rgba(168, 85, 247, 0.22);
-    box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.15);
-  }
-
-  .glass-card {
-    background:
-      linear-gradient(155deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 40%, rgba(255, 255, 255, 0.03) 100%),
-      rgba(16, 18, 27, 0.55);
-    backdrop-filter: blur(24px) saturate(150%);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
-      0 20px 40px -22px rgba(0, 0, 0, 0.6);
-  }
-
-  .glass-card-hover {
-    transition: background 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .glass-card-hover:hover {
-    background:
-      linear-gradient(155deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 40%, rgba(255, 255, 255, 0.04) 100%),
-      rgba(20, 22, 33, 0.62);
-    border-color: rgba(255, 255, 255, 0.16);
-    transform: translateY(-2px);
-    box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-      0 24px 48px -20px rgba(0, 0, 0, 0.65);
-  }
-
-  .glass-panel {
-    background: rgba(10, 12, 18, 0.45);
-    backdrop-filter: blur(30px) saturate(150%);
-    -webkit-backdrop-filter: blur(30px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .pill-button-primary {
-    background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
-    color: #ffffff;
-    box-shadow: 0 4px 20px -2px rgba(168, 85, 247, 0.35);
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .pill-button-primary:hover {
-    background: linear-gradient(135deg, #c084fc 0%, #8b5cf6 100%);
-    box-shadow: 0 6px 24px -2px rgba(168, 85, 247, 0.45);
-    transform: scale(1.01);
-  }
-
-  .pill-button-dark {
-    background: #141620;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #e2e8f0;
-    transition: all 0.2s ease;
-  }
-  .pill-button-dark:hover {
-    background: #1c1f2e;
-    border-color: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-  }
-
-  .glow-purple {
-    box-shadow: 0 0 35px -5px rgba(168, 85, 247, 0.25);
-  }
-
-  .glow-emerald {
-    box-shadow: 0 0 35px -5px rgba(16, 185, 129, 0.25);
-  }
-
   .whisper-bg {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.03) 100%);
-    border-left: 3px solid #f59e0b;
+    background-color: rgba(245, 158, 11, 0.05);
+    border: 1px solid rgba(245, 158, 11, 0.16);
   }
 }
 
-/* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.animate-pulse-slow {
-  animation: pulseGlow 3s ease-in-out infinite;
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

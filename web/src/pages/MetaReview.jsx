@@ -30,6 +30,8 @@ import {
   Globe
 } from 'lucide-react';
 import ApiClient from '../api/client';
+import PageHeader from '../components/PageHeader';
+import MetaEmbeddedSignupButton from '../components/MetaEmbeddedSignupButton';
 
 export const MetaReview = () => {
   const [activeTab, setActiveTab] = useState('messaging');
@@ -259,87 +261,44 @@ export const MetaReview = () => {
   const readinessPercent = totalItems > 0 ? Math.round((approvedOrChecked / totalItems) * 100) : 0;
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-purple-500/30">
-      {/* Top Banner / Hero Header */}
-      <div className="border-b border-white/[0.08] bg-gradient-to-r from-[#120f29] via-[#0c101c] to-[#0d1424] px-6 py-6 flex-shrink-0">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/25">
-                <ShieldCheck className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-black text-white tracking-tight">
-                    Central de Homologação & Auditoria Meta
-                  </h1>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold uppercase tracking-wide">
-                    Meta App Review Hub
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Ambiente oficial para comprovação prática de requisitos, teste de permissões da Cloud API e kit para revisores da Meta.
-                </p>
-              </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-5">
+        <PageHeader
+          description="Configuração e checklist para a análise do app pela Meta. Os simuladores desta tela são demonstrações locais: não enviam mensagens nem comprovam entrega, consentimento ou aprovação. Faça os testes reais em Canais, Conversas e Templates."
+          actions={
+            <span className="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-white/[0.08] text-xs text-slate-300 tabular-nums" role="status">
+              {loading ? (
+                'Carregando checklist…'
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" strokeWidth={1.75} />
+                  {approvedOrChecked} de {totalItems} itens prontos · {readinessPercent}%
+                </>
+              )}
+            </span>
+          }
+        >
+          <div className="overflow-x-auto -mx-1 px-1">
+            <div className="segmented" role="tablist" aria-label="Seções da homologação">
+              {[
+                { id: 'messaging', label: 'Messaging API', icon: MessageSquare },
+                { id: 'management', label: 'Management & WABA', icon: Layers },
+                { id: 'embedded', label: 'Embedded Signup', icon: Radio },
+                { id: 'optin', label: 'Opt-in e opt-out', icon: UserCheck },
+                { id: 'reviewer_pack', label: 'Kit do revisor', icon: Video },
+                { id: 'checklist', label: 'Checklist', icon: CheckCircle2 },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>
+                    <Icon strokeWidth={1.75} />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
-
-          {/* Quick Metrics Badge */}
-          <div className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] p-3 rounded-2xl">
-            <div className="text-right">
-              <div className="text-xs text-slate-400 font-medium">Prontidão para Submissão</div>
-              <div className="text-lg font-black text-emerald-400 flex items-center justify-end gap-1.5">
-                <span>{loading ? 'Carregando...' : `${readinessPercent}% Concluído`}</span>
-                {!loading && <CheckCircle2 className="w-4 h-4" />}
-              </div>
-            </div>
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-black text-sm">
-              {loading ? '…' : `${approvedOrChecked}/${totalItems}`}
-            </div>
-          </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="max-w-7xl mx-auto mt-6 flex items-center gap-1.5 overflow-x-auto pb-1 border-t border-white/[0.06] pt-4 scrollbar-none">
-          {[
-            { id: 'messaging', label: '1. WhatsApp Messaging API', icon: MessageSquare, badge: 'Crucial' },
-            { id: 'management', label: '2. WhatsApp Management & WABA', icon: Layers, badge: 'Templates' },
-            { id: 'embedded', label: '3. Embedded Signup Flow', icon: Radio, badge: 'Onboarding' },
-            { id: 'optin', label: '4. Opt-in & Opt-out Compliance', icon: UserCheck, badge: 'Políticas' },
-            { id: 'reviewer_pack', label: '5. Kit do Revisor & Screencast', icon: Video, badge: 'Submissão' },
-            { id: 'checklist', label: '6. Checklist & Diagnóstico', icon: CheckCircle2, badge: null },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
-                  isActive
-                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                    : 'bg-white/[0.03] text-slate-400 hover:text-white hover:bg-white/[0.07] border border-white/[0.05]'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{tab.label}</span>
-                {tab.badge && (
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase font-black ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-purple-500/15 text-purple-300'
-                    }`}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 max-w-7xl mx-auto w-full p-6 space-y-6">
+        </PageHeader>
 
         {/* ========================================================================= */}
         {/* TAB 1: WHATSAPP BUSINESS MESSAGING (LIVE SIMULATOR & PROOF) */}
@@ -347,7 +306,7 @@ export const MetaReview = () => {
         {activeTab === 'messaging' && (
           <div className="space-y-6">
             {/* Context Card for Meta Reviewer */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/15 px-2 py-0.5 rounded-md border border-purple-500/20">
@@ -364,7 +323,7 @@ export const MetaReview = () => {
               </div>
               <button
                 onClick={handleSimulateIncomingWebhook}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2 flex-shrink-0"
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 flex-shrink-0"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Simular Webhook de Mensagem</span>
@@ -373,15 +332,15 @@ export const MetaReview = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: WhatsApp Simulator Phone UI */}
-              <div className="lg:col-span-7 bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 flex flex-col shadow-xl">
+              <div className="lg:col-span-7 bg-surface rounded-2xl border border-white/[0.08] p-5 flex flex-col shadow-xl">
                 {/* Chat Header */}
                 <div className="pb-3 border-b border-white/[0.08] flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-emerald-500/20">
+                      <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm shadow-md ">
                         WA
                       </div>
-                      <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0c101d]" />
+                      <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-surface" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -426,8 +385,8 @@ export const MetaReview = () => {
                         <div
                           className={`max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-md ${
                             isAgent
-                              ? 'bg-gradient-to-br from-purple-700 to-indigo-700 text-white rounded-tr-sm'
-                              : 'bg-[#151c2e] text-slate-200 border border-white/[0.06] rounded-tl-sm'
+                              ? ' bg-purple-700 text-white rounded-tr-sm'
+                              : 'bg-surface-hover text-slate-200 border border-white/[0.06] rounded-tl-sm'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-3 mb-1 text-[10px] opacity-75 font-medium">
@@ -481,7 +440,7 @@ export const MetaReview = () => {
                     <button
                       type="submit"
                       disabled={!inputText.trim()}
-                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white transition-all shadow-md shadow-purple-600/30"
+                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white transition-all shadow-md "
                       title="Enviar Mensagem Oficial"
                     >
                       <Send className="w-4 h-4" />
@@ -499,7 +458,7 @@ export const MetaReview = () => {
               {/* Right Column: Meta Requirements Breakdown & Live Proofs */}
               <div className="lg:col-span-5 space-y-4">
                 {/* Proof Card 1: Customer Care Window Rules */}
-                <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-2.5">
+                <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-2.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
                     <div className="w-6 h-6 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center">
                       <Clock className="w-3.5 h-3.5" />
@@ -527,7 +486,7 @@ export const MetaReview = () => {
                 </div>
 
                 {/* Proof Card 2: Status Callback Tracker */}
-                <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-2.5">
+                <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-2.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
                     <div className="w-6 h-6 rounded-lg bg-cyan-500/15 text-cyan-400 flex items-center justify-center">
                       <CheckCheck className="w-3.5 h-3.5" />
@@ -557,7 +516,7 @@ export const MetaReview = () => {
                 </div>
 
                 {/* Proof Card 3: Interactive Buttons & Media */}
-                <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-2">
+                <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-2">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
                     <div className="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
                       <Sparkles className="w-3.5 h-3.5" />
@@ -589,7 +548,7 @@ export const MetaReview = () => {
         {/* ========================================================================= */}
         {activeTab === 'management' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/15 px-2 py-0.5 rounded-md border border-purple-500/20">
@@ -606,7 +565,7 @@ export const MetaReview = () => {
 
             {/* WABA Health & Assets Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-1">
+              <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-1">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">Classificação do Número</span>
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
@@ -615,13 +574,13 @@ export const MetaReview = () => {
                 <p className="text-[11px] text-slate-500">Qualidade de envio impecável sem bloqueios</p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-1">
+              <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-1">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">Limite de Envio (Tier)</span>
                 <div className="text-base font-bold text-white">Tier 1K / Dia</div>
                 <p className="text-[11px] text-slate-500">Escala automaticamente conforme qualidade</p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-1">
+              <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-1">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">Nome de Exibição (Display Name)</span>
                 <div className="text-base font-bold text-purple-300 truncate">WH Panel Oficial</div>
                 <p className="text-[11px] text-emerald-400 flex items-center gap-1">
@@ -629,7 +588,7 @@ export const MetaReview = () => {
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] space-y-1">
+              <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] space-y-1">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">WABA Status</span>
                 <div className="text-base font-bold text-emerald-400">VERIFICADO</div>
                 <p className="text-[11px] text-slate-500">Contrato de solução e pagamento ativo</p>
@@ -639,7 +598,7 @@ export const MetaReview = () => {
             {/* Interactive Template Builder & Realtime Preview */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Form Configurator */}
-              <div className="lg:col-span-7 bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
+              <div className="lg:col-span-7 bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
                 <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <FileCode className="w-4 h-4 text-purple-400" />
@@ -773,7 +732,7 @@ export const MetaReview = () => {
               </div>
 
               {/* Realtime Phone Preview */}
-              <div className="lg:col-span-5 bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 flex flex-col justify-between shadow-xl">
+              <div className="lg:col-span-5 bg-surface rounded-2xl border border-white/[0.08] p-5 flex flex-col justify-between shadow-xl">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
                     <span className="text-xs font-bold text-white flex items-center gap-2">
@@ -786,7 +745,7 @@ export const MetaReview = () => {
                   </div>
 
                   {/* Simulated WhatsApp Bubble */}
-                  <div className="p-4 rounded-2xl bg-[#172133] border border-white/[0.07] text-xs text-slate-200 shadow-lg space-y-2">
+                  <div className="p-4 rounded-2xl bg-surface-hover border border-white/[0.07] text-xs text-slate-200 shadow-lg space-y-2">
                     {templateHeader && (
                       <div className="font-bold text-white text-sm border-b border-white/[0.08] pb-1">
                         {templateHeader}
@@ -832,7 +791,7 @@ export const MetaReview = () => {
         {/* ========================================================================= */}
         {activeTab === 'embedded' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/15 px-2 py-0.5 rounded-md border border-purple-500/20">
@@ -848,7 +807,7 @@ export const MetaReview = () => {
             </div>
 
             {/* Visual Step-by-Step Flow */}
-            <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-6 shadow-xl space-y-6">
+            <div className="bg-surface rounded-2xl border border-white/[0.08] p-6 shadow-xl space-y-6">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Radio className="w-4 h-4 text-purple-400" />
                 <span>Fluxo Passo a Passo do Cliente (User Experience)</span>
@@ -891,9 +850,21 @@ export const MetaReview = () => {
                   </div>
                   <h4 className="text-xs font-bold text-emerald-300">Conexão Ativa</h4>
                   <p className="text-[11px] text-slate-300">
-                    A Meta retorna o `code` de autorização. O backend troca pelo token permanente, associa a WABA e ativa o webhook instantaneamente.
+                    A Meta retorna o `code` de autorização. O backend troca o código pelo token do cliente, valida o número, registra na Cloud API e confirma a inscrição do webhook.
                   </p>
                 </div>
+              </div>
+
+              {/* Real, functional trigger — same flow used on the Canais page */}
+              <div className="border-t border-white/[0.06] pt-4 space-y-3">
+                <h4 className="text-xs font-bold text-white">Testar o Fluxo Agora (Real)</h4>
+                <p className="text-[11px] text-slate-400">
+                  Este botão dispara o mesmo popup oficial da Meta usado na aba "Canais" — útil para o revisor testar sem precisar navegar até outra tela.
+                </p>
+                <MetaEmbeddedSignupButton
+                  channelName="WhatsApp Oficial (Homologação)"
+                  onSuccess={fetchCompliance}
+                />
               </div>
 
               {/* Technical Variables Check */}
@@ -903,23 +874,27 @@ export const MetaReview = () => {
                   <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] flex items-center justify-between">
                     <div>
                       <span className="text-[10px] text-slate-500 block">META_APP_ID</span>
-                      <span className="text-purple-300 font-bold">{metaConfig?.app_id || '987654321012345'}</span>
+                      <span className="text-purple-300 font-bold">{metaConfig?.app_id || 'não configurado'}</span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-sans font-bold">Ativo</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-sans font-bold ${metaConfig?.app_id ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                      {metaConfig?.app_id ? 'Ativo' : 'Ausente'}
+                    </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] flex items-center justify-between">
                     <div>
                       <span className="text-[10px] text-slate-500 block">META_CONFIG_ID (Embedded)</span>
-                      <span className="text-purple-300 font-bold">{metaConfig?.config_id || '123456789098765'}</span>
+                      <span className="text-purple-300 font-bold">{metaConfig?.config_id || 'não configurado'}</span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-sans font-bold">Válido</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-sans font-bold ${metaConfig?.config_id ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                      {metaConfig?.config_id ? 'Válido' : 'Ausente'}
+                    </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] flex items-center justify-between">
                     <div>
                       <span className="text-[10px] text-slate-500 block">META_API_VERSION</span>
-                      <span className="text-purple-300 font-bold">{metaConfig?.api_version || 'v20.0'}</span>
+                      <span className="text-purple-300 font-bold">{metaConfig?.api_version || 'v26.0'}</span>
                     </div>
                     <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-sans font-bold">Mais Recente</span>
                   </div>
@@ -934,7 +909,7 @@ export const MetaReview = () => {
         {/* ========================================================================= */}
         {activeTab === 'optin' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-500/20">
@@ -951,7 +926,7 @@ export const MetaReview = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Proof 1: Opt-in Consent Capture Showcase */}
-              <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
+              <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
                 <div className="flex items-center gap-2 border-b border-white/[0.08] pb-3">
                   <UserCheck className="w-4 h-4 text-purple-400" />
                   <h3 className="text-sm font-bold text-white">Mecanismo de Coleta de Consentimento (Opt-in)</h3>
@@ -998,7 +973,7 @@ export const MetaReview = () => {
               </div>
 
               {/* Proof 2: Opt-out Enforcement Simulator */}
-              <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
+              <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
                 <div className="flex items-center gap-2 border-b border-white/[0.08] pb-3">
                   <AlertTriangle className="w-4 h-4 text-rose-400" />
                   <h3 className="text-sm font-bold text-white">Simulador de Cancelamento Automático (Opt-out)</h3>
@@ -1047,7 +1022,7 @@ export const MetaReview = () => {
             </div>
 
             {/* Links to Public Legal Pages */}
-            <div className="p-4 rounded-2xl bg-[#0c101d] border border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-surface border border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="space-y-0.5">
                 <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-purple-400" />
@@ -1101,7 +1076,7 @@ export const MetaReview = () => {
         {/* ========================================================================= */}
         {activeTab === 'reviewer_pack' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/15 px-2 py-0.5 rounded-md border border-purple-500/20">
@@ -1117,7 +1092,7 @@ export const MetaReview = () => {
             </div>
 
             {/* Test Credentials for Meta Reviewer */}
-            <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
+            <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
                 <div className="flex items-center gap-2">
                   <Key className="w-4 h-4 text-purple-400" />
@@ -1183,7 +1158,7 @@ export const MetaReview = () => {
             </div>
 
             {/* Screencast Step-by-Step Script (2m30s Video) */}
-            <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
+            <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
                 <div className="flex items-center gap-2">
                   <Video className="w-4 h-4 text-emerald-400" />
@@ -1244,7 +1219,7 @@ export const MetaReview = () => {
             {/* Ready-to-Paste Use Case Texts (PT & EN) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Permission 1: whatsapp_business_messaging */}
-              <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-3 shadow-xl">
+              <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-3 shadow-xl">
                 <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
                   <span className="text-xs font-mono font-bold text-purple-300">
                     whatsapp_business_messaging
@@ -1268,7 +1243,7 @@ export const MetaReview = () => {
               </div>
 
               {/* Permission 2: whatsapp_business_management */}
-              <div className="bg-[#0c101d] rounded-2xl border border-white/[0.08] p-5 space-y-3 shadow-xl">
+              <div className="bg-surface rounded-2xl border border-white/[0.08] p-5 space-y-3 shadow-xl">
                 <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
                   <span className="text-xs font-mono font-bold text-purple-300">
                     whatsapp_business_management
@@ -1299,7 +1274,7 @@ export const MetaReview = () => {
         {/* ========================================================================= */}
         {activeTab === 'checklist' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0f1424] to-[#0c101d] border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/15 px-2 py-0.5 rounded-md border border-purple-500/20">
@@ -1330,7 +1305,7 @@ export const MetaReview = () => {
                     className={`p-4 rounded-2xl border transition-all ${
                       isApproved
                         ? 'bg-emerald-950/10 border-emerald-500/25'
-                        : 'bg-[#0c101d] border-white/[0.08]'
+                        : 'bg-surface border-white/[0.08]'
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1339,7 +1314,7 @@ export const MetaReview = () => {
                           onClick={() => updateItemStatus(item.key, undefined, !item.checked)}
                           className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center transition-all ${
                             item.checked
-                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                              ? 'bg-emerald-500 text-white shadow-md '
                               : 'border border-white/[0.2] hover:border-purple-400'
                           }`}
                         >

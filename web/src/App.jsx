@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider } from './context/WebSocketContext';
-import Sidebar from './components/Sidebar';
+import Sidebar, { navItems } from './components/Sidebar';
 import Header from './components/Header';
 
 import Login from './pages/Login';
@@ -24,7 +24,7 @@ import PublicLegal from './pages/PublicLegal';
 const MainLayout = () => {
   const { isAuthenticated, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('conversations');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   const [authView, setAuthView] = useState('login'); // 'login' or 'register'
 
   // Public compliance routes for Meta App Reviewers & Crawlers (no auth required)
@@ -44,9 +44,8 @@ const MainLayout = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#070b14] flex flex-col items-center justify-center text-white">
-        <div className="w-10 h-10 border-3 border-brand-500/30 border-t-brand-500 rounded-full animate-spin mb-4" />
-        <p className="text-xs text-slate-400 font-medium">Carregando WH Panel...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-white/10 border-t-accent-400 rounded-full animate-spin" aria-label="Carregando" />
       </div>
     );
   }
@@ -59,21 +58,8 @@ const MainLayout = () => {
     );
   }
 
-  const tabTitleMap = {
-    dashboard: 'Dashboard & Métricas',
-    conversations: 'Conversas Omnichannel',
-    crm: 'CRM Funil de Vendas',
-    flows: 'Flow Canvas & Agentes IA',
-    channels: 'Canais Conectados',
-    contacts: 'Gestão de Contatos',
-    templates: 'Templates de Mensagem',
-    meta_review: 'Homologação & Auditoria Meta',
-    queues: 'Filas & Triagem',
-    campaigns: 'Disparos em Massa',
-    integrations: 'Integrações & Webhooks',
-    reports: 'Relatórios Analíticos',
-    billing: 'Planos & IA Keys',
-  };
+  // The header title is the sidebar label, so a page is called one thing.
+  const activeTitle = navItems.find((item) => item.id === activeTab)?.label || 'WH Panel';
 
   const renderActiveTab = () => {
     switch (activeTab) {
@@ -121,7 +107,7 @@ const MainLayout = () => {
 
         {/* Main Body */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <Header activeTitle={tabTitleMap[activeTab] || 'WH Panel'} onNavigate={setActiveTab} />
+          <Header activeTitle={activeTitle} onNavigate={setActiveTab} />
           <main className="flex-1 overflow-hidden">
             {renderActiveTab()}
           </main>

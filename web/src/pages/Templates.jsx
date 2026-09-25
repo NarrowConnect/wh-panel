@@ -30,12 +30,16 @@ import {
   Eye
 } from 'lucide-react';
 import ApiClient from '../api/client';
+import PageHeader from '../components/PageHeader';
 
 export const Templates = () => {
   const [templates, setTemplates] = useState([]);
   const [filterCategory, setFilterCategory] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [pageError, setPageError] = useState('');
+  const [pageNotice, setPageNotice] = useState('');
+  const [builderError, setBuilderError] = useState('');
   const [showBuilderModal, setShowBuilderModal] = useState(false);
   const [officialChannels, setOfficialChannels] = useState([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
@@ -112,6 +116,8 @@ export const Templates = () => {
   // Force Synchronization with Meta Cloud API
   const handleSyncMetaTemplates = async () => {
     setSyncing(true);
+    setPageError('');
+    setPageNotice('');
     try {
       const res = await ApiClient.post('/templates/sync', {
         channel_id: selectedChannelId || undefined,
@@ -124,9 +130,9 @@ export const Templates = () => {
         await loadData();
       }
 
-      alert(res.message || 'Sincronização com a Meta concluída com sucesso!');
+      setPageNotice(res.message || 'Sincronização com a Meta concluída.');
     } catch (err) {
-      alert(err.message || 'Erro ao sincronizar templates com a Meta');
+      setPageError(err.message || 'Não foi possível sincronizar com a Meta.');
     } finally {
       setSyncing(false);
     }
@@ -301,8 +307,9 @@ export const Templates = () => {
   // Handle Form Submit
   const handleCreateTemplate = async (e) => {
     e.preventDefault();
+    setBuilderError('');
     if (validationErrors.length > 0) {
-      alert(`Corrija os seguintes erros antes de enviar à Meta:\n- ${validationErrors.join('\n- ')}`);
+      setBuilderError('Corrija os erros de validação acima antes de salvar.');
       return;
     }
 
@@ -377,24 +384,26 @@ export const Templates = () => {
       setSampleValues({ 1: 'Lucas Ferreira', 2: 'PED-98231' });
       setFooterText('WH Panel WhatsApp Oficial');
       setHasButtons(false);
-      alert(
+      setPageError('');
+      setPageNotice(
         submitDirectlyToMeta
-          ? 'Template validado e submetido para aprovação da Meta com sucesso! (Status: Pendente)'
-          : 'Template salvo localmente como rascunho com sucesso!'
+          ? `Template "${created?.name || payload.name}" enviado para aprovação da Meta. O status muda quando a Meta responder.`
+          : `Template "${created?.name || payload.name}" salvo como rascunho.`
       );
     } catch (err) {
-      alert(err.message || 'Erro ao criar template');
+      setBuilderError(err.message || 'Não foi possível criar o template.');
     }
   };
 
   // Delete Template Handler
   const handleDeleteTemplate = async (tmplId) => {
     if (!window.confirm('Tem certeza que deseja excluir este template?')) return;
-    setTemplates((prev) => prev.filter((t) => t.id !== tmplId));
     try {
       await ApiClient.delete(`/templates/${tmplId}`);
+      setTemplates((prev) => prev.filter((t) => t.id !== tmplId));
+      setPageError('');
     } catch (err) {
-      console.warn('[Templates] Deleted locally:', err);
+      setPageError(err.message || 'Não foi possível excluir o template.');
     }
   };
 
@@ -437,128 +446,94 @@ export const Templates = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] bg-[#070b14]">
-      {/* 1. Top Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 glass-card p-4 rounded-2xl border border-slate-800 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/20 to-brand-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center shadow-inner">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-white">Templates de Mensagem WhatsApp Meta</h2>
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-[10px] font-bold text-emerald-300">
-                Meta Cloud API v19.0
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Crie, valide e sincronize modelos HSM oficiais para abertura de janelas de 24h e notificações
-            </p>
-          </div>
-        </div>
-
-        {/* Top Controls: Channel Sync & Add Template */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {officialChannels.length > 0 && (
-            <select
-              value={selectedChannelId}
-              onChange={(e) => setSelectedChannelId(e.target.value)}
-              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-brand-500 cursor-pointer"
+    <div className="h-full overflow-y-auto">
+    <div className="p-6 space-y-5">
+      <PageHeader
+        description="Modelos aprovados pela Meta são obrigatórios para iniciar conversas no WhatsApp oficial fora da janela de 24 horas e para campanhas."
+        actions={
+          <>
+            {officialChannels.length > 0 && (
+              <select
+                aria-label="Canal oficial"
+                value={selectedChannelId}
+                onChange={(e) => setSelectedChannelId(e.target.value)}
+                className="field w-auto h-8 max-w-[14rem]"
+              >
+                {officialChannels.map((ch) => (
+                  <option key={ch.id} value={ch.id}>{ch.name}</option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={handleSyncMetaTemplates}
+              disabled={syncing || officialChannels.length === 0}
+              className="btn btn-secondary"
+              title="Buscar os templates da conta WhatsApp Business na Meta"
             >
-              {officialChannels.map((ch) => (
-                <option key={ch.id} value={ch.id}>
-                  {ch.name} (Oficial)
-                </option>
-              ))}
-            </select>
-          )}
+              <RefreshCw className={syncing ? 'animate-spin' : ''} strokeWidth={1.75} />
+              {syncing ? 'Sincronizando…' : 'Sincronizar com a Meta'}
+            </button>
+            <button type="button" onClick={() => setShowBuilderModal(true)} className="btn btn-primary">
+              <Plus strokeWidth={2} />
+              Novo template
+            </button>
+          </>
+        }
+      />
 
-          <button
-            onClick={handleSyncMetaTemplates}
-            disabled={syncing}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-700 disabled:opacity-50"
-            title="Forçar sincronização e consultar templates aprovados na Meta"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${syncing ? 'animate-spin' : ''}`} />
-            <span>{syncing ? 'Sincronizando...' : 'Sincronizar com a Meta'}</span>
-          </button>
+      {pageError && <p role="alert" className="alert-error">{pageError}</p>}
+      {pageNotice && (
+        <p role="status" className="px-4 py-3 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] text-[13px] text-emerald-100/90">
+          {pageNotice}
+        </p>
+      )}
 
-          <button
-            onClick={() => setShowBuilderModal(true)}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 active:scale-95 text-white text-xs font-bold shadow-lg shadow-brand-500/25 flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Template</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Official Channel Status Banner if none connected */}
       {officialChannels.length === 0 && (
-        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-            <span>
-              Nenhum canal oficial <strong>WhatsApp Meta API</strong> conectado. Você pode criar e validar rascunhos de templates, mas conecte seu número oficial na aba <strong>Canais</strong> para submeter e disparar em massa.
-            </span>
-          </div>
-          <button
-            onClick={handleSyncMetaTemplates}
-            className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30 transition-colors ml-4 flex-shrink-0"
-          >
-            Verificar Conexão
-          </button>
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] text-[13px] text-amber-100/90">
+          <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-300 flex-shrink-0" strokeWidth={1.75} />
+          <p>
+            Nenhum canal WhatsApp oficial conectado. Você pode montar rascunhos aqui, mas enviar para aprovação e sincronizar exige um canal oficial em Canais.
+          </p>
         </div>
       )}
 
-      {/* 3. Category Filter Tabs */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="segmented" role="group" aria-label="Categoria">
           {[
-            { id: 'ALL', label: 'Todos os Templates' },
-            { id: 'UTILITY', label: 'Utilidade & Notificações (UTILITY)' },
-            { id: 'MARKETING', label: 'Marketing & Promoções (MARKETING)' },
-            { id: 'AUTHENTICATION', label: 'Autenticação & 2FA (AUTH)' },
+            { id: 'ALL', label: 'Todos' },
+            { id: 'UTILITY', label: 'Utilidade' },
+            { id: 'MARKETING', label: 'Marketing' },
+            { id: 'AUTHENTICATION', label: 'Autenticação' },
           ].map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setFilterCategory(cat.id)}
-              className={`px-3.5 py-1.5 rounded-lg font-semibold transition-all ${
-                filterCategory === cat.id ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-              }`}
-            >
+            <button key={cat.id} type="button" aria-pressed={filterCategory === cat.id} onClick={() => setFilterCategory(cat.id)}>
               {cat.label}
             </button>
           ))}
         </div>
-
-        <span className="text-xs text-slate-400 font-mono">
-          {filteredTemplates.length} {filteredTemplates.length === 1 ? 'template listado' : 'templates listados'}
+        <span className="text-xs text-slate-500 tabular-nums">
+          {filteredTemplates.length} {filteredTemplates.length === 1 ? 'template' : 'templates'}
         </span>
       </div>
 
-      {/* 4. Templates Cards Grid */}
       {filteredTemplates.length === 0 && !loading ? (
-        <div className="p-12 glass-card rounded-2xl border border-slate-800 text-center space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
-            <FileText className="w-6 h-6" />
-          </div>
-          <h4 className="text-sm font-bold text-white">Nenhum template cadastrado nesta categoria</h4>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Clique em <strong>Sincronizar com a Meta</strong> para puxar os modelos já aprovados na sua conta WhatsApp Business ou crie um novo template com validação automática.
+        <div className="glass-card px-6 py-14 text-center space-y-3">
+          <FileText className="w-5 h-5 text-slate-500 mx-auto" strokeWidth={1.75} />
+          <h2 className="text-sm font-medium text-white">
+            {templates.length ? 'Nenhum template nesta categoria' : 'Nenhum template ainda'}
+          </h2>
+          <p className="text-[13px] text-slate-400 max-w-md mx-auto">
+            Sincronize para trazer os modelos que já existem na sua conta WhatsApp Business, ou crie um novo e envie para aprovação.
           </p>
           <div className="flex items-center justify-center gap-2 pt-2">
-            <button
-              onClick={handleSyncMetaTemplates}
-              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-semibold"
-            >
-              Sincronizar com a Meta
-            </button>
-            <button
-              onClick={() => setShowBuilderModal(true)}
-              className="px-4 py-2 rounded-xl bg-brand-500 text-white text-xs font-bold"
-            >
-              Criar Novo Template
+            {officialChannels.length > 0 && (
+              <button type="button" onClick={handleSyncMetaTemplates} disabled={syncing} className="btn btn-secondary">
+                Sincronizar com a Meta
+              </button>
+            )}
+            <button type="button" onClick={() => setShowBuilderModal(true)} className="btn btn-primary">
+              <Plus strokeWidth={2} />
+              Novo template
             </button>
           </div>
         </div>
@@ -607,7 +582,7 @@ export const Templates = () => {
                   </div>
 
                   {/* WhatsApp Preview Bubble */}
-                  <div className="p-3.5 rounded-xl bg-[#0a101d] border border-slate-800 text-xs space-y-1.5">
+                  <div className="p-3.5 rounded-xl bg-surface border border-slate-800 text-xs space-y-1.5">
                     <p className="text-slate-200 leading-relaxed font-sans whitespace-pre-line text-[11px]">
                       {bodyContent}
                     </p>
@@ -631,7 +606,7 @@ export const Templates = () => {
       {/* ========================================================================= */}
       {showBuilderModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#0e121e] border border-slate-800 rounded-2xl w-full max-w-4xl p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-surface border border-slate-800 rounded-2xl w-full max-w-4xl p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -641,7 +616,7 @@ export const Templates = () => {
                 <div>
                   <h3 className="text-sm font-bold text-white">Criar & Submeter Template WhatsApp Meta</h3>
                   <p className="text-[11px] text-slate-400">
-                    Validação em tempo real conforme as diretrizes oficiais da Meta Graph API v19.0
+                    Validação em tempo real conforme as diretrizes oficiais da Meta Graph API v26.0
                   </p>
                 </div>
               </div>
@@ -1069,19 +1044,12 @@ export const Templates = () => {
               </div>
 
               {/* Form Action Buttons */}
-              <div className="lg:col-span-12 flex items-center justify-end gap-2.5 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowBuilderModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
-                >
+              <div className="lg:col-span-12 flex items-center justify-end gap-2 pt-4 border-t border-white/[0.06]">
+                {builderError && <p role="alert" className="mr-auto text-[13px] text-rose-300">{builderError}</p>}
+                <button type="button" onClick={() => setShowBuilderModal(false)} className="btn btn-secondary">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  disabled={validationErrors.length > 0}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 text-white text-xs font-bold shadow-lg shadow-brand-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
+                <button type="submit" disabled={validationErrors.length > 0} className="btn btn-primary">
                   {submitDirectlyToMeta ? 'Validar & Submeter à Meta' : 'Salvar como Rascunho'}
                 </button>
               </div>
@@ -1089,6 +1057,7 @@ export const Templates = () => {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 };

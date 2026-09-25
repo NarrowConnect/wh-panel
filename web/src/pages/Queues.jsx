@@ -1,354 +1,416 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Layers,
-  Plus,
-  Users,
-  Shuffle,
-  Shield,
-  Clock,
-  ArrowRight,
-  Settings,
-  ToggleLeft,
-  ToggleRight,
-  Filter,
-  CheckCircle2,
-  GitFork
-} from 'lucide-react';
+import { Layers, Plus, Trash2, Loader2, GitFork } from 'lucide-react';
 import ApiClient from '../api/client';
+import PageHeader from '../components/PageHeader';
+import Modal from '../components/Modal';
+
+const asList = (data, key) => (Array.isArray(data) ? data : data?.[key] || []);
+
+const strategies = {
+  round_robin: { label: 'Rodízio', hint: 'Distribui em sequência entre os atendentes da fila.' },
+  least_busy: { label: 'Menor carga', hint: 'Entrega para quem tem menos conversas abertas.' },
+  manual: { label: 'Manual', hint: 'Conversas ficam na fila até um atendente puxar.' },
+};
+
+const conditionTypes = {
+  tag: 'Tag da conversa',
+  channel: 'Canal de origem',
+  custom_field: 'Campo personalizado do contato',
+};
+
+const operators = { equals: 'é igual a', contains: 'contém' };
+
 
 export const Queues = () => {
   const [queues, setQueues] = useState([]);
-  const [activeTab, setActiveTab] = useState('queues'); // 'queues' or 'rules'
+  const [rulesByQueue, setRulesByQueue] = useState({});
+  const [channels, setChannels] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [view, setView] = useState('queues');
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
-  // Queue Form
-  const [name, setName] = useState('');
-  const [strategy, setStrategy] = useState('round_robin');
+  const [queueModal, setQueueModal] = useState(false);
+  const [queueForm, setQueueForm] = useState({ name: '', strategy: 'round_robin' });
+  const [ruleModal, setRuleModal] = useState(false);
+  const [ruleForm, setRuleForm] = useState({ queueId: '', type: 'tag', key: '', operator: 'equals', value: '', priority: 1 });
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  // Pre-Triage Rules State (3.7)
-  const [rules, setRules] = useState([
-    { id: 'r1', name: 'Leads VIP -> Fila Comercial VIP', condition: 'Tag contém #VIP OU Faturamento > R$ 50k', targetQueue: 'Comercial & Vendas', priority: 1, active: true },
-    { id: 'r2', name: 'Clientes Existentes -> Fila Suporte N1', condition: 'Contato já possui atendimentos anteriores', targetQueue: 'Suporte Técnico N1', priority: 2, active: true },
-    { id: 'r3', name: 'Canal Instagram -> Fila de Triagem Rápida', condition: 'Canal de Origem é Instagram Direct', targetQueue: 'Comercial & Vendas', priority: 3, active: true },
-  ]);
-
-  const [ruleName, setRuleName] = useState('');
-  const [ruleCondition, setRuleCondition] = useState('');
-  const [ruleTargetQueue, setRuleTargetQueue] = useState('');
-
-  const fetchQueues = async () => {
+  const fetchAll = async () => {
     try {
-      const data = await ApiClient.get('/queues');
-      const list = Array.isArray(data) ? data : (data?.queues || []);
+      const list = asList(await ApiClient.get('/queues'), 'queues');
       setQueues(list);
-    } catch {
-      setQueues([]);
+      const results = await Promise.allSettled(list.map((q) => ApiClient.get(`/queues/${q.id}/rules`)));
+      setRulesByQueue(Object.fromEntries(list.map((q, i) => [q.id, results[i].status === 'fulfilled' ? asList(results[i].value, 'rules') : []])));
+      setLoadError('');
+    } catch (err) {
+      setLoadError(err.message || 'Não foi possível carregar as filas.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchQueues();
+    fetchAll();
+    ApiClient.get('/channels').then((d) => setChannels(asList(d, 'channels'))).catch(() => {});
+    ApiClient.get('/tags').then((d) => setTags(asList(d, 'tags'))).catch(() => {});
   }, []);
+
+  const openQueueModal = () => {
+    setQueueForm({ name: '', strategy: 'round_robin' });
+    setFormError('');
+    setQueueModal(true);
+  };
+
+  const openRuleModal = () => {
+    setRuleForm({ queueId: queues[0]?.id || '', type: 'tag', key: '', operator: 'equals', value: '', priority: 1 });
+    setFormError('');
+    setRuleModal(true);
+  };
 
   const handleCreateQueue = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
+    setFormError('');
     try {
-      const payload = {
-        name,
-        strategy,
-        max_load: 8,
-      };
-      await ApiClient.post('/queues', payload);
-      setShowModal(false);
-      setName('');
-      fetchQueues();
+      await ApiClient.post('/queues', { name: queueForm.name.trim(), allocation_strategy: queueForm.strategy });
+      setQueueModal(false);
+      fetchAll();
     } catch (err) {
-      alert(err.message || 'Erro ao criar fila');
+      setFormError(err.message || 'Não foi possível criar a fila.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleCreateRule = (e) => {
+  const handleCreateRule = async (e) => {
     e.preventDefault();
-    const newR = {
-      id: `r_${Date.now()}`,
-      name: ruleName,
-      condition: ruleCondition,
-      targetQueue: ruleTargetQueue || queues[0]?.name || 'Geral',
-      priority: rules.length + 1,
-      active: true,
-    };
-    setRules((prev) => [...prev, newR]);
-    setShowRuleModal(false);
-    setRuleName('');
-    setRuleCondition('');
+    setSubmitting(true);
+    setFormError('');
+    try {
+      await ApiClient.post(`/queues/${ruleForm.queueId}/rules`, {
+        priority: Number(ruleForm.priority) || 1,
+        condition_type: ruleForm.type,
+        condition_key: ruleForm.type === 'custom_field' ? ruleForm.key.trim() : null,
+        condition_operator: ruleForm.type === 'channel' ? 'equals' : ruleForm.operator,
+        condition_value: ruleForm.value.trim(),
+      });
+      setRuleModal(false);
+      fetchAll();
+    } catch (err) {
+      setFormError(err.message || 'Não foi possível salvar a regra.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  const deleteRule = async (rule) => {
+    if (!window.confirm('Excluir esta regra de triagem?')) return;
+    try {
+      await ApiClient.delete(`/queues/rules/${rule.id}`);
+      fetchAll();
+    } catch (err) {
+      setLoadError(err.message || 'Não foi possível excluir a regra.');
+    }
+  };
+
+  const describeRule = (rule) => {
+    const type = conditionTypes[rule.condition_type] || rule.condition_type;
+    const field = rule.condition_type === 'custom_field' && rule.condition_key ? ` "${rule.condition_key}"` : '';
+    const value =
+      rule.condition_type === 'channel'
+        ? channels.find((c) => c.id === rule.condition_value)?.name || rule.condition_value
+        : rule.condition_value;
+    return `${type}${field} ${operators[rule.condition_operator] || rule.condition_operator} "${value}"`;
+  };
+
+  const allRules = queues
+    .flatMap((q) => (rulesByQueue[q.id] || []).map((r) => ({ ...r, queueName: q.name })))
+    .sort((a, b) => a.priority - b.priority);
+
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
-      {/* 3.7 Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-card p-4 rounded-2xl border border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center">
-            <Layers className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>Filas de Atendimento & Regras de Triagem (3.7)</span>
-            </h2>
-            <p className="text-xs text-slate-400">
-              Distribuição automática com Round-Robin, menor carga e roteamento inteligente por tags/canais
-            </p>
-          </div>
-        </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-5">
+        <PageHeader
+          description="Filas separam o atendimento por equipe. Regras de triagem direcionam cada nova conversa para a fila certa."
+          actions={
+            <>
+              <div className="segmented" role="group" aria-label="Visualização">
+                <button type="button" aria-pressed={view === 'queues'} onClick={() => setView('queues')}>Filas</button>
+                <button type="button" aria-pressed={view === 'rules'} onClick={() => setView('rules')}>Regras de triagem</button>
+              </div>
+              {view === 'queues' ? (
+                <button type="button" onClick={openQueueModal} className="btn btn-primary">
+                  <Plus strokeWidth={2} />
+                  Nova fila
+                </button>
+              ) : (
+                <button type="button" onClick={openRuleModal} disabled={queues.length === 0} className="btn btn-primary">
+                  <Plus strokeWidth={2} />
+                  Nova regra
+                </button>
+              )}
+            </>
+          }
+        />
 
-        <div className="flex items-center gap-2">
-          {/* Tab Switcher */}
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-            <button
-              onClick={() => setActiveTab('queues')}
-              className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                activeTab === 'queues' ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Filas
-            </button>
-            <button
-              onClick={() => setActiveTab('rules')}
-              className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                activeTab === 'rules' ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Regras de Triagem
-            </button>
+        {loadError && (
+          <p role="alert" className="alert-error">{loadError}</p>
+        )}
+
+        {loading ? (
+          <div className="py-16 flex justify-center">
+            <Loader2 className="w-5 h-5 text-slate-500 animate-spin" aria-label="Carregando" />
           </div>
-
-          {activeTab === 'queues' ? (
-            <button
-              onClick={() => setShowModal(true)}
-              className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-95 text-white text-xs font-semibold shadow-lg shadow-brand-500/25 flex items-center gap-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Criar Nova Fila</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowRuleModal(true)}
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-semibold shadow-lg shadow-purple-500/25 flex items-center gap-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Nova Regra de Triagem</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {activeTab === 'queues' ? (
-        queues.length === 0 && !loading ? (
-          <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
-              <Layers className="w-6 h-6" />
+        ) : view === 'queues' ? (
+          queues.length === 0 ? (
+            <div className="glass-card px-6 py-14 text-center space-y-3">
+              <Layers className="w-5 h-5 text-slate-500 mx-auto" strokeWidth={1.75} />
+              <h2 className="text-sm font-medium text-white">Nenhuma fila configurada</h2>
+              <p className="text-[13px] text-slate-400 max-w-md mx-auto">
+                Crie filas como Comercial, Suporte ou Financeiro e escolha como as conversas são distribuídas.
+              </p>
+              <button type="button" onClick={openQueueModal} className="btn btn-primary mt-2">
+                <Plus strokeWidth={2} />
+                Nova fila
+              </button>
             </div>
-            <h4 className="text-sm font-bold text-white">Nenhuma fila de atendimento configurada</h4>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Crie departamentos como Comercial, Suporte ou Financeiro e defina a estratégia de distribuição dos atendentes.
+          ) : (
+            <ul className="glass-card divide-y divide-white/[0.05]">
+              {queues.map((q) => {
+                const users = q.users || [];
+                const rules = rulesByQueue[q.id] || [];
+                return (
+                  <li key={q.id} className="px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-[13px] font-medium text-white truncate">{q.name}</h3>
+                        {!q.is_active && (
+                          <span className="px-1.5 h-5 inline-flex items-center rounded-md border border-white/[0.08] text-[11px] text-slate-400">Inativa</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">{strategies[q.allocation_strategy]?.hint || q.allocation_strategy}</p>
+                    </div>
+                    <dl className="flex items-center gap-6 text-xs">
+                      <div>
+                        <dt className="text-slate-500">Distribuição</dt>
+                        <dd className="text-slate-200">{strategies[q.allocation_strategy]?.label || q.allocation_strategy}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Atendentes</dt>
+                        <dd className="text-slate-200 tabular-nums">{users.length}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Regras</dt>
+                        <dd className="text-slate-200 tabular-nums">{rules.length}</dd>
+                      </div>
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : allRules.length === 0 ? (
+          <div className="glass-card px-6 py-14 text-center space-y-3">
+            <GitFork className="w-5 h-5 text-slate-500 mx-auto" strokeWidth={1.75} />
+            <h2 className="text-sm font-medium text-white">Nenhuma regra de triagem</h2>
+            <p className="text-[13px] text-slate-400 max-w-md mx-auto">
+              {queues.length === 0
+                ? 'Crie uma fila primeiro; cada regra aponta para uma fila de destino.'
+                : 'Sem regras, novas conversas não são direcionadas automaticamente para nenhuma fila.'}
             </p>
-            <button
-              onClick={() => setShowModal(true)}
-              className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Criar Primeira Fila</span>
-            </button>
+            {queues.length > 0 && (
+              <button type="button" onClick={openRuleModal} className="btn btn-primary mt-2">
+                <Plus strokeWidth={2} />
+                Nova regra
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(Array.isArray(queues) ? queues : []).map((q) => (
-            <div key={q.id} className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-start justify-between">
-                <h4 className="text-sm font-bold text-white">{q.name}</h4>
-                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold">
-                  {q.strategy === 'round_robin' ? 'Round-Robin' : q.strategy === 'less_busy' ? 'Menor Carga' : 'Manual'}
+          <ul className="glass-card divide-y divide-white/[0.05]">
+            {allRules.map((rule) => (
+              <li key={rule.id} className="px-5 py-3.5 flex items-center gap-4">
+                <span className="w-6 text-xs text-slate-500 tabular-nums" title="Prioridade">{rule.priority}</span>
+                <p className="flex-1 min-w-0 text-[13px] text-slate-200 truncate">{describeRule(rule)}</p>
+                <span className="text-xs text-slate-500 whitespace-nowrap">
+                  para <span className="text-slate-200">{rule.queueName}</span>
                 </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-xs">
-                <div className="p-2.5 rounded-xl bg-slate-900">
-                  <span className="text-slate-500 block text-[10px]">Atendentes</span>
-                  <span className="text-sm font-bold text-white">{q.attendants_count || 1}</span>
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900">
-                  <span className="text-slate-500 block text-[10px]">Em Aberto</span>
-                  <span className="text-sm font-bold text-brand-400">{q.active_conversations || 0}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-          </div>
-        )
-      ) : (
-        /* Pre-Triage Rules List (3.7) */
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <GitFork className="w-4 h-4 text-purple-400" />
-            <span>Regras de Roteamento Automático de Clientes</span>
-          </h3>
-
-          <div className="space-y-3">
-            {(Array.isArray(rules) ? rules : []).map((rule) => (
-              <div
-                key={rule.id}
-                className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 font-bold flex items-center justify-center text-[10px]">
-                      {rule.priority}
-                    </span>
-                    <span className="font-bold text-white text-sm">{rule.name}</span>
-                  </div>
-                  <p className="text-slate-400 font-mono text-[11px]">{rule.condition}</p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <span className="text-slate-500 block text-[10px]">Fila de Destino:</span>
-                    <span className="font-semibold text-brand-400">{rule.targetQueue}</span>
-                  </div>
-
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
-                    Ativa
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Create Queue Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card rounded-2xl border border-slate-800 w-full max-w-md p-6 space-y-4 animate-fade-in">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Plus className="w-4 h-4 text-purple-400" />
-              <span>Nova Fila de Atendimento</span>
-            </h3>
-
-            <form onSubmit={handleCreateQueue} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Nome da Fila</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Comercial WhatsApp"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Estratégia de Distribuição</label>
-                <select
-                  value={strategy}
-                  onChange={(e) => setStrategy(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                >
-                  <option value="round_robin">Round-Robin (Distribuição Circular Igualitária)</option>
-                  <option value="less_busy">Menor Carga Atual (Menos atendimentos)</option>
-                  <option value="manual">Manual (Puxar por demanda)</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
+                  onClick={() => deleteRule(rule)}
+                  className="btn btn-icon text-slate-500 hover:text-rose-300"
+                  aria-label="Excluir regra"
+                  title="Excluir regra"
                 >
-                  Cancelar
+                  <Trash2 strokeWidth={1.75} />
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-semibold"
-                >
-                  Criar Fila
-                </button>
-              </div>
-            </form>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {queueModal && (
+        <Modal
+          title="Nova fila"
+          onClose={() => setQueueModal(false)}
+          onSubmit={handleCreateQueue}
+          submitting={submitting}
+          submitLabel="Criar fila"
+          error={formError}
+        >
+          <div>
+            <label htmlFor="queue-name" className="field-label">Nome</label>
+            <input
+              id="queue-name"
+              autoFocus
+              required
+              type="text"
+              placeholder="Ex.: Comercial"
+              value={queueForm.name}
+              onChange={(e) => setQueueForm({ ...queueForm, name: e.target.value })}
+              className="field"
+            />
           </div>
-        </div>
+          <div>
+            <label htmlFor="queue-strategy" className="field-label">Distribuição</label>
+            <select
+              id="queue-strategy"
+              value={queueForm.strategy}
+              onChange={(e) => setQueueForm({ ...queueForm, strategy: e.target.value })}
+              className="field"
+            >
+              {Object.entries(strategies).map(([id, s]) => (
+                <option key={id} value={id}>{s.label}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-slate-500">{strategies[queueForm.strategy].hint}</p>
+          </div>
+        </Modal>
       )}
 
-      {/* Create Pre-Triage Rule Modal */}
-      {showRuleModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card rounded-2xl border border-slate-800 w-full max-w-md p-6 space-y-4 animate-fade-in">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Plus className="w-4 h-4 text-purple-400" />
-              <span>Nova Regra de Pré-Triagem Automática</span>
-            </h3>
+      {ruleModal && (
+        <Modal
+          title="Nova regra de triagem"
+          onClose={() => setRuleModal(false)}
+          onSubmit={handleCreateRule}
+          submitting={submitting}
+          submitLabel="Salvar regra"
+          error={formError}
+        >
+          <div className="grid grid-cols-[1fr,5rem] gap-3">
+            <div>
+              <label htmlFor="rule-queue" className="field-label">Fila de destino</label>
+              <select
+                id="rule-queue"
+                required
+                value={ruleForm.queueId}
+                onChange={(e) => setRuleForm({ ...ruleForm, queueId: e.target.value })}
+                className="field"
+              >
+                {queues.map((q) => (
+                  <option key={q.id} value={q.id}>{q.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="rule-priority" className="field-label">Prioridade</label>
+              <input
+                id="rule-priority"
+                type="number"
+                min="1"
+                value={ruleForm.priority}
+                onChange={(e) => setRuleForm({ ...ruleForm, priority: e.target.value })}
+                className="field tabular-nums"
+              />
+            </div>
+          </div>
 
-            <form onSubmit={handleCreateRule} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Nome da Regra</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Roteamento VIP por Tag"
-                  value={ruleName}
-                  onChange={(e) => setRuleName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                />
-              </div>
+          <div>
+            <label htmlFor="rule-type" className="field-label">Condição</label>
+            <select
+              id="rule-type"
+              value={ruleForm.type}
+              onChange={(e) => setRuleForm({ ...ruleForm, type: e.target.value, value: '', key: '' })}
+              className="field"
+            >
+              {Object.entries(conditionTypes).map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Condição de Gatilho</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Tag contém #VIP OU Canal é WhatsApp Comercial"
-                  value={ruleCondition}
-                  onChange={(e) => setRuleCondition(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
-                />
-              </div>
+          {ruleForm.type === 'custom_field' && (
+            <div>
+              <label htmlFor="rule-key" className="field-label">Chave do campo</label>
+              <input
+                id="rule-key"
+                required
+                type="text"
+                placeholder="Ex.: segmento"
+                value={ruleForm.key}
+                onChange={(e) => setRuleForm({ ...ruleForm, key: e.target.value })}
+                className="field"
+              />
+            </div>
+          )}
 
+          <div className={ruleForm.type === 'channel' ? '' : 'grid grid-cols-[8rem,1fr] gap-3'}>
+            {ruleForm.type !== 'channel' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Fila de Destino</label>
+                <label htmlFor="rule-op" className="field-label">Operador</label>
                 <select
-                  value={ruleTargetQueue}
-                  onChange={(e) => setRuleTargetQueue(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  id="rule-op"
+                  value={ruleForm.operator}
+                  onChange={(e) => setRuleForm({ ...ruleForm, operator: e.target.value })}
+                  className="field"
                 >
-                  {(Array.isArray(queues) ? queues : []).map((q) => (
-                    <option key={q.id} value={q.name}>{q.name}</option>
+                  {Object.entries(operators).map(([id, label]) => (
+                    <option key={id} value={id}>{label}</option>
                   ))}
                 </select>
               </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowRuleModal(false)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
+            )}
+            <div>
+              <label htmlFor="rule-value" className="field-label">{ruleForm.type === 'channel' ? 'Canal' : 'Valor'}</label>
+              {ruleForm.type === 'channel' ? (
+                <select
+                  id="rule-value"
+                  required
+                  value={ruleForm.value}
+                  onChange={(e) => setRuleForm({ ...ruleForm, value: e.target.value })}
+                  className="field"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-xl bg-purple-600 text-white text-xs font-semibold"
-                >
-                  Salvar Regra
-                </button>
-              </div>
-            </form>
+                  <option value="">Selecione um canal</option>
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input
+                    id="rule-value"
+                    required
+                    type="text"
+                    list={ruleForm.type === 'tag' ? 'rule-tag-options' : undefined}
+                    placeholder={ruleForm.type === 'tag' ? 'Nome da tag' : 'Valor do campo'}
+                    value={ruleForm.value}
+                    onChange={(e) => setRuleForm({ ...ruleForm, value: e.target.value })}
+                    className="field"
+                  />
+                  {ruleForm.type === 'tag' && (
+                    <datalist id="rule-tag-options">
+                      {tags.map((t) => (
+                        <option key={t.id} value={t.name} />
+                      ))}
+                    </datalist>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
