@@ -127,7 +127,6 @@ func main() {
 	wsHub := websocket.NewHub()
 	eventPublisher := integrations.NewEventPublisher(db)
 	campaignsDispatcher := campaigns.NewDispatcher(db, redisClient)
-	campaignsDispatcher.StartStreamWorker(context.Background())
 
 	// 5. Initialize Fiber App
 	app := fiber.New(fiber.Config{
@@ -193,7 +192,7 @@ func main() {
 	metaAppID := getEnv("META_APP_ID", "")
 	metaAppSecret := getEnv("META_APP_SECRET", "")
 	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "")
-	metaAPIVersion := getEnv("META_API_VERSION", "v20.0")
+	metaAPIVersion := getEnv("META_API_VERSION", "v26.0")
 	metaAccessToken := getEnv("META_ACCESS_TOKEN", "")
 	metaConfigID := getEnv("META_CONFIG_ID", "")
 
@@ -205,13 +204,16 @@ func main() {
 	}
 
 	metaClient := meta.NewClient(meta.Config{
-		AppID:       metaAppID,
-		AppSecret:   metaAppSecret,
-		VerifyToken: metaVerifyToken,
-		APIVersion:  metaAPIVersion,
-		AccessToken: metaAccessToken,
-		ConfigID:    metaConfigID,
+		AppID:                 metaAppID,
+		AppSecret:             metaAppSecret,
+		VerifyToken:           metaVerifyToken,
+		APIVersion:            metaAPIVersion,
+		AccessToken:           metaAccessToken,
+		ConfigID:              metaConfigID,
+		EmbeddedSignupVersion: getEnv("META_EMBEDDED_SIGNUP_VERSION", "v4"),
 	})
+	campaignsDispatcher.ConfigureMeta(metaClient, jwtSecret)
+	campaignsDispatcher.StartStreamWorker(context.Background())
 
 	// Initialize WAHA (WhatsApp HTTP API) client
 	wahaBaseURL := getEnv("WAHA_BASE_URL", "http://localhost:3000")

@@ -538,8 +538,17 @@ func (h *Handler) CreateCard(c *fiber.Ctx) error {
 		if phone != "" {
 			phonePtr = &phone
 		}
-		_, _ = h.db.ExecContext(c.UserContext(), `INSERT INTO contacts (id, company_id, name, phone, email, status) VALUES ($1,$2,$3,$4,$5,'active')`, cid, companyID, *req.ContactName, phonePtr, emailPtr)
-		contactID = &cid
+		// Link the card to the contact that already has this phone instead of
+		// creating a duplicate of someone who is in Contatos/Conversas.
+		var existing uuid.UUID
+		if phone != "" && h.db.GetContext(c.UserContext(), &existing, `SELECT id FROM contacts WHERE company_id=$1 AND phone=$2 AND status <> 'merged' ORDER BY created_at LIMIT 1`, companyID, phone) == nil {
+			contactID = &existing
+		} else {
+			if _, err := h.db.ExecContext(c.UserContext(), `INSERT INTO contacts (id, company_id, name, phone, email, status) VALUES ($1,$2,$3,$4,$5,'active')`, cid, companyID, *req.ContactName, phonePtr, emailPtr); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create contact for card"})
+			}
+			contactID = &cid
+		}
 	}
 	customVals := req.CustomValues
 	if len(customVals) == 0 {

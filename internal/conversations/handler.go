@@ -1,6 +1,7 @@
 package conversations
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -171,6 +172,9 @@ func (h *Handler) ListConversations(c *fiber.Ctx) error {
 		_ = h.db.GetContext(c.UserContext(), &contact, `SELECT id, name, phone, email, avatar_url, status FROM contacts WHERE id = $1`, convs[i].ContactID)
 		convs[i].Contact = &contact
 
+		// Inbox preview: last message the contact can see (internal notes excluded).
+		_ = h.db.GetContext(c.UserContext(), &convs[i].LastMessagePreview, `SELECT LEFT(body, 140) FROM messages WHERE conversation_id = $1 AND company_id = $2 AND is_internal = FALSE ORDER BY created_at DESC LIMIT 1`, convs[i].ID, companyID)
+
 		if convs[i].AssignedUserID != nil {
 			var u models.User
 			_ = h.db.GetContext(c.UserContext(), &u, `SELECT id, name, email, role FROM users WHERE id = $1`, convs[i].AssignedUserID)
@@ -336,7 +340,7 @@ func (h *Handler) SendMessage(c *fiber.Ctx) error {
 
 	msgID := uuid.New()
 	query := `INSERT INTO messages (id, conversation_id, company_id, sender_type, sender_id, body, media_url, is_internal, status) 
-		VALUES ($1, $2, $3, 'user', $4, $5, $6, $7, 'sent') 
+		VALUES ($1, $2, $3, 'user', $4, $5, $6, $7, CASE WHEN $7 THEN 'sent' ELSE 'pending' END)
 		RETURNING id, conversation_id, company_id, sender_type, sender_id, body, media_url, is_internal, status, created_at`
 
 	var newMsg models.Message
@@ -393,9 +397,17 @@ func (h *Handler) UpdateStatus(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
 
-	query := `UPDATE conversations SET 
-		status = $1, 
-		resolved_at = CASE WHEN $1 = 'resolved' THEN CURRENT_TIMESTAMP ELSE NULL END,
+	switch req.Status {
+	case "open", "pending", "resolved":
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Status inválido: use open, pending ou resolved"})
+	}
+
+	// $1 is used both as the column value and in the CASE; without the cast
+	// Postgres deduces varchar vs text for it and rejects the statement.
+	query := `UPDATE conversations SET
+		status = $1::varchar,
+		resolved_at = CASE WHEN $1::varchar = 'resolved' THEN CURRENT_TIMESTAMP ELSE NULL END,
 		updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2 AND company_id = $3 
 		RETURNING id, status, updated_at`
@@ -571,6 +583,13 @@ func (h *Handler) DetachTag(c *fiber.Ctx) error {
 }
 
 func (h *Handler) dispatchOutbound(companyID, conversationID uuid.UUID, msg models.Message) {
+	finalStatus := "failed"
+	defer func() {
+		_, err := h.db.Exec(`UPDATE messages SET status=$1 WHERE id=$2 AND company_id=$3`, finalStatus, msg.ID, companyID)
+		if err == nil && h.wsHub != nil {
+			h.wsHub.BroadcastToCompany(companyID.String(), "message_status", map[string]interface{}{"id": msg.ID, "status": finalStatus, "conversation_id": conversationID})
+		}
+	}()
 	// Lookup conversation's channel and contact
 	var ch struct {
 		ID                   uuid.UUID `db:"id"`
@@ -579,18 +598,14 @@ func (h *Handler) dispatchOutbound(companyID, conversationID uuid.UUID, msg mode
 		ConfigJSON           string    `db:"config_json"`
 	}
 	var contactPhone *string
-	_ = h.db.Get(&contactPhone, `SELECT phone FROM contacts c JOIN conversations conv ON conv.contact_id = c.id WHERE conv.id = $1`, conversationID)
+	_ = h.db.Get(&contactPhone, `SELECT phone FROM contacts c JOIN conversations conv ON conv.contact_id = c.id WHERE conv.id = $1 AND conv.company_id=$2 AND c.company_id=$2`, conversationID, companyID)
 	if contactPhone == nil || *contactPhone == "" {
 		return
 	}
-	err := h.db.Get(&ch, `SELECT id, type, credentials_encrypted, config_json FROM channels WHERE id = (SELECT channel_id FROM conversations WHERE id = $1)`, conversationID)
+	err := h.db.Get(&ch, `SELECT id, type, credentials_encrypted, config_json FROM channels WHERE company_id=$2 AND status='active' AND id = (SELECT channel_id FROM conversations WHERE id = $1 AND company_id=$2)`, conversationID, companyID)
 	if err != nil {
-		// Fallback: try active channel for company
-		err = h.db.Get(&ch, `SELECT id, type, credentials_encrypted, config_json FROM channels WHERE company_id = $1 AND status='active' ORDER BY created_at DESC LIMIT 1`, companyID)
-		if err != nil {
-			log.Printf("[Outbound] No channel found for conversation %s: %v", conversationID, err)
-			return
-		}
+		log.Printf("[Outbound] Canal ausente/inativo para %s", conversationID)
+		return
 	}
 	// Dispatch based on channel type
 	switch ch.Type {
@@ -618,27 +633,29 @@ func (h *Handler) dispatchOutbound(companyID, conversationID uuid.UUID, msg mode
 		}
 		if phoneNumberID == "" {
 			log.Printf("[Outbound][Meta] missing phone_number_id for channel %s", ch.ID)
-			_, _ = h.db.Exec(`UPDATE messages SET status='failed' WHERE id=$1`, msg.ID)
 			return
 		}
 		// 24h window check (spec 3.5): Meta requires template outside window
 		var lastInbound sql.NullTime
 		_ = h.db.Get(&lastInbound, `SELECT created_at FROM messages WHERE conversation_id=$1 AND sender_type='contact' ORDER BY created_at DESC LIMIT 1`, conversationID)
-		if lastInbound.Valid && time.Since(lastInbound.Time) > 24*time.Hour {
+		if !lastInbound.Valid || time.Since(lastInbound.Time) > 24*time.Hour {
 			log.Printf("[Outbound][Meta] outside 24h window for conv %s (last inbound %v) - free text blocked, requires template", conversationID, lastInbound.Time)
-			_, _ = h.db.Exec(`UPDATE messages SET status='failed' WHERE id=$1`, msg.ID)
 			return
 		}
-		to := *contactPhone
+		to := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, *contactPhone)
 		// Normalize to digits only for Meta (E.164 without +)
-		resp, err := h.metaClient.SendTextMessage(nil, phoneNumberID, accessToken, to, msg.Body)
+		resp, err := h.metaClient.SendTextMessage(context.Background(), phoneNumberID, accessToken, to, msg.Body)
 		if err != nil {
 			log.Printf("[Outbound][Meta] send failed conv %s: %v", conversationID, err)
-			_, _ = h.db.Exec(`UPDATE messages SET status='failed' WHERE id=$1`, msg.ID)
 			return
 		}
 		log.Printf("[Outbound][Meta] sent msg %s to %s: %v", msg.ID, to, resp)
-		_, _ = h.db.Exec(`UPDATE messages SET status='sent' WHERE id=$1`, msg.ID)
+		finalStatus = "sent"
 	case "whatsapp_qr":
 		if h.wahaClient == nil {
 			return
@@ -648,16 +665,16 @@ func (h *Handler) dispatchOutbound(companyID, conversationID uuid.UUID, msg mode
 		sessionName, _ := cfg["session_name"].(string)
 		if sessionName == "" {
 			log.Printf("[Outbound][WAHA] missing session_name for channel %s", ch.ID)
-			_, _ = h.db.Exec(`UPDATE messages SET status='failed' WHERE id=$1`, msg.ID)
 			return
 		}
-		_, err := h.wahaClient.SendTextMessage(nil, sessionName, *contactPhone, msg.Body)
+		_, err := h.wahaClient.SendTextMessage(context.Background(), sessionName, *contactPhone, msg.Body)
 		if err != nil {
 			log.Printf("[Outbound][WAHA] send failed conv %s: %v", conversationID, err)
-			_, _ = h.db.Exec(`UPDATE messages SET status='failed' WHERE id=$1`, msg.ID)
 			return
 		}
-		_, _ = h.db.Exec(`UPDATE messages SET status='sent' WHERE id=$1`, msg.ID)
+		finalStatus = "sent"
+	case "webchat":
+		finalStatus = "sent"
 	default:
 		log.Printf("[Outbound] channel type %s not dispatchable (msg %s stored locally)", ch.Type, msg.ID)
 	}

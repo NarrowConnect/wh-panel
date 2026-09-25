@@ -21,10 +21,11 @@ type Conversation struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 
 	// Enriched fields for API responses
-	Contact      *Contact `json:"contact,omitempty" db:"-"`
-	AssignedUser *User    `json:"assigned_user,omitempty" db:"-"`
-	Channel      *Channel `json:"channel,omitempty" db:"-"`
-	Tags         []Tag    `json:"tags,omitempty" db:"-"`
+	Contact            *Contact `json:"contact,omitempty" db:"-"`
+	AssignedUser       *User    `json:"assigned_user,omitempty" db:"-"`
+	Channel            *Channel `json:"channel,omitempty" db:"-"`
+	Tags               []Tag    `json:"tags,omitempty" db:"-"`
+	LastMessagePreview string   `json:"last_message_preview,omitempty" db:"-"`
 }
 
 // Message represents a single chat bubble (user reply, contact incoming, bot or internal whisper)

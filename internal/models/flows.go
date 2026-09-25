@@ -20,7 +20,8 @@ type Flow struct {
 
 type FlowNode struct {
 	ID       string                 `json:"id"`
-	Type     string                 `json:"type"` // send_message, condition, wait, transfer_queue, collect_data, end
+	Type     string                 `json:"type"`            // send_message, condition, wait, transfer_queue, collect_data, end
+	Title    string                 `json:"title,omitempty"` // editor label; the engine ignores it
 	Data     map[string]interface{} `json:"data"`
 	Position map[string]float64     `json:"position,omitempty"`
 }
