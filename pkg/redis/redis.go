@@ -61,7 +61,7 @@ func (c *Client) PushConversationMessage(ctx context.Context, companyID, convers
 	key := fmt.Sprintf("tenant:%s:conversation:%s:recent", companyID, conversationID)
 	pipe := c.rdb.Pipeline()
 	pipe.LPush(ctx, key, messageJSON)
-	pipe.LTrim(ctx, key, 0, 49) // Keep last 50 messages
+	pipe.LTrim(ctx, key, 0, 49)           // Keep last 50 messages
 	pipe.Expire(ctx, key, 7*24*time.Hour) // Keep context active for 7 days
 	_, err := pipe.Exec(ctx)
 	return err

@@ -20,10 +20,10 @@ type Campaign struct {
 	UpdatedAt          time.Time  `json:"updated_at" db:"updated_at"`
 
 	// Progress stats
-	TotalRecipients     int `json:"total_recipients,omitempty" db:"-"`
-	SentRecipients      int `json:"sent_recipients,omitempty" db:"-"`
-	FailedRecipients    int `json:"failed_recipients,omitempty" db:"-"`
-	PendingRecipients   int `json:"pending_recipients,omitempty" db:"-"`
+	TotalRecipients   int `json:"total_recipients,omitempty" db:"-"`
+	SentRecipients    int `json:"sent_recipients,omitempty" db:"-"`
+	FailedRecipients  int `json:"failed_recipients,omitempty" db:"-"`
+	PendingRecipients int `json:"pending_recipients,omitempty" db:"-"`
 }
 
 type CampaignRecipient struct {

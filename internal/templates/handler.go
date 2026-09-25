@@ -20,20 +20,21 @@ import (
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
 	"wh-panel/pkg/meta"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db         *sqlx.DB
+	db         *postgres.DB
 	metaClient *meta.Client
 	jwtSecret  string
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
-	return &Handler{db: db}
+	return &Handler{db: postgres.Wrap(db)}
 }
 
 func NewHandlerWithMeta(db *sqlx.DB, metaClient *meta.Client, jwtSecret string) *Handler {
-	return &Handler{db: db, metaClient: metaClient, jwtSecret: jwtSecret}
+	return &Handler{db: postgres.Wrap(db), metaClient: metaClient, jwtSecret: jwtSecret}
 }
 
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {

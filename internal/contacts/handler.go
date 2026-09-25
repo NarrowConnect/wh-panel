@@ -16,14 +16,15 @@ import (
 	"wh-panel/internal/channels"
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db *sqlx.DB
+	db *postgres.DB
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
-	return &Handler{db: db}
+	return &Handler{db: postgres.Wrap(db)}
 }
 
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
@@ -279,7 +280,7 @@ func (h *Handler) MergeContacts(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Primary and secondary contact IDs must be different"})
 	}
 
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database error"})
 	}

@@ -10,20 +10,22 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 
 	"wh-panel/internal/channels"
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db         *sqlx.DB
+	db         *postgres.DB
 	dispatcher *Dispatcher
 }
 
 func NewHandler(db *sqlx.DB, dispatcher *Dispatcher) *Handler {
 	return &Handler{
-		db:         db,
+		db:         postgres.Wrap(db),
 		dispatcher: dispatcher,
 	}
 }
@@ -107,7 +109,7 @@ func (h *Handler) CreateCampaign(c *fiber.Ctx) error {
 		rateLimit = 60
 	}
 
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database transaction error"})
 	}
@@ -124,8 +126,14 @@ func (h *Handler) CreateCampaign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create campaign"})
 	}
 
-	// Add recipients from explicit ContactIDs list or by TagID (fix: support contacts via conversation_tags)
-	var contactIDs []uuid.UUID = req.ContactIDs
+	// Add recipients from explicit ContactIDs list or by TagID (fix: support contacts via conversation_tags).
+	// campaign_recipients has no company_id, so keep only contacts of this company.
+	var contactIDs []uuid.UUID
+	if len(req.ContactIDs) > 0 {
+		if err := tx.SelectContext(c.UserContext(), &contactIDs, `SELECT id FROM contacts WHERE company_id = $1 AND id = ANY($2)`, companyID, pq.Array(req.ContactIDs)); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to validate recipients"})
+		}
+	}
 
 	if req.TagID != nil {
 		var tagContacts []uuid.UUID
@@ -200,7 +208,7 @@ func (h *Handler) GetCampaignRecipients(c *fiber.Ctx) error {
 	campIDStr := c.Params("id")
 	campID, _ := uuid.Parse(campIDStr)
 
-	var list []models.CampaignRecipient
+	list := []models.CampaignRecipient{}
 	query := `SELECT cr.id, cr.campaign_id, cr.contact_id, cr.status, cr.error_message, cr.sent_at, cr.created_at 
 		FROM campaign_recipients cr
 		JOIN campaigns c ON c.id = cr.campaign_id
@@ -278,7 +286,7 @@ func (h *Handler) ImportCSV(c *fiber.Ctx) error {
 	}
 
 	var imported, skipped int
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "DB error"})
 	}

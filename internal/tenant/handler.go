@@ -10,16 +10,17 @@ import (
 
 	"wh-panel/internal/auth"
 	"wh-panel/internal/models"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db     *sqlx.DB
+	db     *postgres.DB
 	jwtMgr *auth.JWTManager
 }
 
 func NewHandler(db *sqlx.DB, jwtMgr *auth.JWTManager) *Handler {
 	return &Handler{
-		db:     db,
+		db:     postgres.Wrap(db),
 		jwtMgr: jwtMgr,
 	}
 }
@@ -48,7 +49,7 @@ func (h *Handler) CreateCompany(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Name, slug, admin_email, and password are required"})
 	}
 
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to start database transaction"})
 	}

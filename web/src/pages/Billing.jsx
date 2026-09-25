@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader';
 // Providers the billing API has defaults for (billing/handler.go SaveAIProvider).
 const providers = [
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-proj-…', model: 'gpt-4o-mini' },
-  { id: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-…', model: 'claude-3-5-sonnet' },
+  { id: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-…', model: 'claude-opus-5' },
   { id: 'deepseek', label: 'DeepSeek', placeholder: 'sk-…', model: 'deepseek-chat' },
 ];
 

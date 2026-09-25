@@ -12,18 +12,19 @@ import (
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/sandbox"
 )
 
 type Handler struct {
-	db        *sqlx.DB
+	db        *postgres.DB
 	jwtSecret string
 	publisher *EventPublisher
 }
 
 func NewHandler(db *sqlx.DB, jwtSecret string, publisher *EventPublisher) *Handler {
 	return &Handler{
-		db:        db,
+		db:        postgres.Wrap(db),
 		jwtSecret: jwtSecret,
 		publisher: publisher,
 	}

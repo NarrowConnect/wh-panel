@@ -8,15 +8,16 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"wh-panel/internal/models"
+	"wh-panel/pkg/postgres"
 )
 
 // PlanLimitsChecker provides methods to verify tenant is within plan limits before allowing resource creation
 type PlanLimitsChecker struct {
-	db *sqlx.DB
+	db *postgres.DB
 }
 
 func NewPlanLimitsChecker(db *sqlx.DB) *PlanLimitsChecker {
-	return &PlanLimitsChecker{db: db}
+	return &PlanLimitsChecker{db: postgres.Wrap(db)}
 }
 
 // CheckUserLimit returns true if the company can add more users based on their subscription plan

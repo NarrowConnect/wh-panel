@@ -23,10 +23,10 @@ type JWTClaims struct {
 }
 
 type JWTManager struct {
-	secretKey     []byte
-	accessExp     time.Duration
-	refreshExp    time.Duration
-	redisClient   *redis.Client
+	secretKey   []byte
+	accessExp   time.Duration
+	refreshExp  time.Duration
+	redisClient *redis.Client
 }
 
 func NewJWTManager(secret string, accessExpHours int, refreshExpDays int, redisClient *redis.Client) *JWTManager {

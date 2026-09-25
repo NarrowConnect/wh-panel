@@ -1,0 +1,11 @@
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wh_tenant') THEN
+        EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM wh_tenant';
+        EXECUTE 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM wh_tenant';
+        EXECUTE 'REVOKE USAGE ON SCHEMA public FROM wh_tenant';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM wh_tenant';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM wh_tenant';
+        DROP ROLE wh_tenant;
+    END IF;
+END $$;

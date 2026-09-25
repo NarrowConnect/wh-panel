@@ -27,11 +27,14 @@ type FlowNode struct {
 }
 
 type FlowEdge struct {
-	ID     string                 `json:"id"`
-	Source string                 `json:"source"`
-	Target string                 `json:"target"`
-	Label  string                 `json:"label,omitempty"`
-	Data   map[string]interface{} `json:"data,omitempty"`
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Label  string `json:"label,omitempty"`
+	// SourceHandle names the output of the source node this edge leaves from
+	// (e.g. true/false on a condition, reply/timeout on a question).
+	SourceHandle string                 `json:"sourceHandle,omitempty"`
+	Data         map[string]interface{} `json:"data,omitempty"`
 }
 
 type FlowDefinition struct {
@@ -54,16 +57,19 @@ type UpdateFlowRequest struct {
 
 // FlowExecution tracks an active running instance of a flow on a conversation
 type FlowExecution struct {
-	ID             uuid.UUID `json:"id" db:"id"`
-	FlowID         uuid.UUID `json:"flow_id" db:"flow_id"`
-	CompanyID      uuid.UUID `json:"company_id" db:"company_id"`
-	ConversationID uuid.UUID `json:"conversation_id" db:"conversation_id"`
-	ContactID      uuid.UUID `json:"contact_id" db:"contact_id"`
-	CurrentNodeID  string    `json:"current_node_id" db:"current_node_id"`
-	Status         string    `json:"status" db:"status"` // running, waiting, completed, failed
-	ContextJSON    string    `json:"context_json" db:"context_json"`
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID  `json:"id" db:"id"`
+	FlowID         uuid.UUID  `json:"flow_id" db:"flow_id"`
+	CompanyID      uuid.UUID  `json:"company_id" db:"company_id"`
+	ConversationID uuid.UUID  `json:"conversation_id" db:"conversation_id"`
+	ContactID      uuid.UUID  `json:"contact_id" db:"contact_id"`
+	CurrentNodeID  string     `json:"current_node_id" db:"current_node_id"`
+	Status         string     `json:"status" db:"status"` // running, waiting_input, waiting_delay, completed, failed, cancelled
+	ContextJSON    string     `json:"context_json" db:"context_json"`
+	ResumeAt       *time.Time `json:"resume_at,omitempty" db:"resume_at"`
+	LastError      *string    `json:"last_error,omitempty" db:"last_error"`
+	TriggerEvent   *string    `json:"trigger_event,omitempty" db:"trigger_event"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 type TriggerFlowExecutionRequest struct {

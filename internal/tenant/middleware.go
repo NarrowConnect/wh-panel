@@ -1,7 +1,6 @@
 package tenant
 
 import (
-	"context"
 	"log"
 	"strings"
 
@@ -51,17 +50,19 @@ func AuthAndTenantMiddleware(jwtMgr *auth.JWTManager, db *sqlx.DB) fiber.Handler
 		c.Locals(LocalUserRoleKey, claims.Role)
 		c.Locals(LocalTokenIDKey, claims.TokenID)
 
-		// Set PostgreSQL Row Level Security (RLS) variable app.current_company_id
+		// Row Level Security: every query of this request runs on one connection
+		// scoped to the caller's company (see pkg/postgres/tenant.go). Fail
+		// closed: without a scoped connection the request does not proceed.
 		if db != nil {
-			if err := postgres.SetTenantContext(c.UserContext(), db, claims.CompanyID.String()); err != nil {
-				log.Printf("[TenantMiddleware] Error setting postgres RLS tenant context: %v", err)
+			tc, err := postgres.Wrap(db).BindTenant(c.UserContext(), claims.CompanyID.String())
+			if err != nil {
+				log.Printf("[TenantMiddleware] could not scope database connection: %v", err)
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+					"error": "Banco de dados indisponível. Tente novamente em instantes.",
+				})
 			}
-			// Ensure RLS variable is cleared after request to avoid pool leak
-			defer func() {
-				if err := postgres.ResetTenantContext(context.Background(), db); err != nil {
-					log.Printf("[TenantMiddleware] Error resetting postgres RLS tenant context: %v", err)
-				}
-			}()
+			defer tc.Release()
+			c.SetUserContext(postgres.WithTenantConn(c.UserContext(), tc))
 		}
 
 		return c.Next()

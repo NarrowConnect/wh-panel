@@ -13,16 +13,19 @@ import (
 	"wh-panel/internal/models"
 	"wh-panel/pkg/crypto"
 	"wh-panel/pkg/meta"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/redis"
 )
 
 type Dispatcher struct {
-	db         *sqlx.DB
+	db         *postgres.DB
 	metaClient *meta.Client
 	jwtSecret  string
 }
 
-func NewDispatcher(db *sqlx.DB, _ *redis.Client) *Dispatcher { return &Dispatcher{db: db} }
+func NewDispatcher(db *sqlx.DB, _ *redis.Client) *Dispatcher {
+	return &Dispatcher{db: postgres.Wrap(db)}
+}
 func (d *Dispatcher) ConfigureMeta(client *meta.Client, secret string) {
 	d.metaClient = client
 	d.jwtSecret = secret

@@ -92,6 +92,9 @@ func main() {
 			"migrations/000013_crm_clickup.up.sql",
 			"migrations/000014_meta_compliance.up.sql",
 			"migrations/000015_data_deletion_requests.up.sql",
+			"migrations/000016_enforce_rls.up.sql",
+			"migrations/000017_tenant_role.up.sql",
+			"migrations/000018_flow_runtime.up.sql",
 		}
 		for _, file := range migrationFiles {
 			if _, err := os.Stat(file); err == nil {
@@ -100,6 +103,7 @@ func main() {
 				}
 			}
 		}
+		log.Printf("[PostgreSQL] %s", postgres.ConfigureTenantRole(context.Background(), db))
 	}
 
 	// 2. Connect to Redis
@@ -235,6 +239,14 @@ func main() {
 	contactsHandler := contacts.NewHandler(db)
 	conversationsHandler := conversations.NewHandler(db, redisClient, wsHub, metaClient, wahaClient, jwtSecret)
 	conversationsHandler.SetPublisher(eventPublisher)
+	channelsHandler.SetBroadcaster(wsHub)
+	// Flows send through the conversations handler (Meta/WAHA delivery),
+	// assign operators through the queues service, and stop when a person replies.
+	flowsEngine.Configure(conversationsHandler, queuesService, jwtSecret)
+	conversationsHandler.SetFlowEngine(flowsEngine)
+	if db != nil {
+		flowsEngine.Start(context.Background())
+	}
 	queuesHandler := queues.NewHandler(db, queuesService)
 	dashboardHandler := dashboard.NewHandler(db)
 	templatesHandler := templates.NewHandlerWithMeta(db, metaClient, jwtSecret)

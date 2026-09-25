@@ -10,16 +10,17 @@ import (
 
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db      *sqlx.DB
+	db      *postgres.DB
 	service *Service
 }
 
 func NewHandler(db *sqlx.DB, service *Service) *Handler {
 	return &Handler{
-		db:      db,
+		db:      postgres.Wrap(db),
 		service: service,
 	}
 }
@@ -210,6 +211,16 @@ func (h *Handler) AddUserToQueue(c *fiber.Ctx) error {
 		queueRole = "operator"
 	}
 
+	// Both the queue and the user must belong to the caller's company; otherwise
+	// conversations could be routed to someone outside it.
+	var owned int
+	if err := h.db.GetContext(c.UserContext(), &owned, `SELECT 1 FROM queues WHERE id = $1 AND company_id = $2`, queueID, companyID); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Queue not found"})
+	}
+	if err := h.db.GetContext(c.UserContext(), &owned, `SELECT 1 FROM users WHERE id = $1 AND company_id = $2`, req.UserID, companyID); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
+	}
+
 	query := `INSERT INTO queue_users (queue_id, user_id, company_id, queue_role) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (queue_id, user_id) DO UPDATE SET queue_role = EXCLUDED.queue_role`
 	_, err := h.db.ExecContext(c.UserContext(), query, queueID, req.UserID, companyID, queueRole)
@@ -244,9 +255,11 @@ func (h *Handler) ListQueueRules(c *fiber.Ctx) error {
 	queueIDStr := c.Params("id")
 	queueID, _ := uuid.Parse(queueIDStr)
 
+	companyID, _ := uuid.Parse(c.Locals(tenant.LocalCompanyIDKey).(string))
+
 	var rules []models.QueueRule
-	query := `SELECT id, queue_id, company_id, priority, condition_type, condition_key, condition_operator, condition_value, created_at FROM queue_rules WHERE queue_id = $1 ORDER BY priority ASC`
-	if err := h.db.SelectContext(c.UserContext(), &rules, query, queueID); err != nil {
+	query := `SELECT id, queue_id, company_id, priority, condition_type, condition_key, condition_operator, condition_value, created_at FROM queue_rules WHERE queue_id = $1 AND company_id = $2 ORDER BY priority ASC`
+	if err := h.db.SelectContext(c.UserContext(), &rules, query, queueID, companyID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch rules"})
 	}
 
@@ -263,6 +276,11 @@ func (h *Handler) CreateQueueRule(c *fiber.Ctx) error {
 	var req models.CreateQueueRuleRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
+	}
+
+	var owned int
+	if err := h.db.GetContext(c.UserContext(), &owned, `SELECT 1 FROM queues WHERE id = $1 AND company_id = $2`, queueID, companyID); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Queue not found"})
 	}
 
 	priority := req.Priority

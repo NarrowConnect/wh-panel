@@ -20,6 +20,7 @@ import (
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
 	"wh-panel/pkg/meta"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/waha"
 )
 
@@ -28,7 +29,12 @@ type queueRouter interface {
 }
 
 type flowResumer interface {
-	ResumeWaitingExecutions(ctx context.Context, companyID, conversationID uuid.UUID, inboundText string) int
+	HandleInbound(ctx context.Context, companyID, conversationID uuid.UUID, channelID *uuid.UUID, text string, newConversation bool)
+}
+
+// broadcaster pushes realtime events to the company's open inboxes.
+type broadcaster interface {
+	BroadcastToCompany(companyID string, eventName string, data interface{})
 }
 
 type eventPublisher interface {
@@ -36,18 +42,24 @@ type eventPublisher interface {
 }
 
 type Handler struct {
-	db           *sqlx.DB
+	db           *postgres.DB
 	jwtSecret    string
 	metaClient   *meta.Client
 	wahaClient   *waha.Client
 	queueService queueRouter
 	flowEngine   flowResumer
 	publisher    eventPublisher
+	hub          broadcaster
+}
+
+// SetBroadcaster makes inbound messages appear live in Conversas.
+func (h *Handler) SetBroadcaster(b broadcaster) {
+	h.hub = b
 }
 
 func NewHandler(db *sqlx.DB, jwtSecret string, metaClient *meta.Client, wahaClient *waha.Client) *Handler {
 	return &Handler{
-		db:         db,
+		db:         postgres.Wrap(db),
 		jwtSecret:  jwtSecret,
 		metaClient: metaClient,
 		wahaClient: wahaClient,
@@ -1328,24 +1340,25 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 
 	// Ensure an open conversation exists for this contact
 	var convID uuid.UUID
+	var channelID *uuid.UUID
 	isNewConv := false
-	err := h.db.GetContext(ctx, &convID, `SELECT id FROM conversations WHERE company_id = $1 AND contact_id = $2 AND status IN ('open','pending') LIMIT 1`, companyID, contactID)
-	if err != nil || convID == uuid.Nil {
+	var existingConv struct {
+		ID        uuid.UUID  `db:"id"`
+		ChannelID *uuid.UUID `db:"channel_id"`
+	}
+	err := h.db.GetContext(ctx, &existingConv, `SELECT id, channel_id FROM conversations WHERE company_id = $1 AND contact_id = $2 AND status IN ('open','pending') LIMIT 1`, companyID, contactID)
+	if err == nil && existingConv.ID != uuid.Nil {
+		convID, channelID = existingConv.ID, existingConv.ChannelID
+	} else {
 		convID = uuid.New()
 		isNewConv = true
-		// Try to resolve channel_id from tenant routing context
-		var channelID *uuid.UUID
-		if rawPayload != nil {
-			if pid, _ := extractMetaChannelIDs(rawPayload); pid != "" {
-				var chID uuid.UUID
-				if err := h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND config_json->>'phone_number_id' = $2 LIMIT 1`, companyID, pid); err == nil {
-					channelID = &chID
-				}
-			}
-		}
+		channelID = h.resolveInboundChannel(ctx, companyID, rawPayload)
 		_, _ = h.db.ExecContext(ctx, `INSERT INTO conversations (id, company_id, contact_id, channel_id, status) VALUES ($1,$2,$3,$4,'open') ON CONFLICT DO NOTHING`, convID, companyID, contactID, channelID)
-		if h.publisher != nil && isNewConv {
+		if h.publisher != nil {
 			h.publisher.PublishEvent(companyID.String(), "conversation.created", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "channel_id": channelID})
+		}
+		if h.hub != nil {
+			h.hub.BroadcastToCompany(companyID.String(), "conversation_created", map[string]interface{}{"id": convID, "contact_id": contactID, "channel_id": channelID})
 		}
 	}
 	var inboundBody string
@@ -1353,17 +1366,23 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 	if rawPayload != nil {
 		if body := extractInboundText(rawPayload); body != "" {
 			inboundBody = body
-			msgID := uuid.New()
-			_, _ = h.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, company_id, sender_type, body, is_internal, status) VALUES ($1,$2,$3,'contact',$4,FALSE,'delivered') ON CONFLICT DO NOTHING`, msgID, convID, companyID, body)
-			_, _ = h.db.ExecContext(ctx, `UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP, unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, convID)
-			if h.publisher != nil {
-				h.publisher.PublishEvent(companyID.String(), "message.received", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "body": body, "message_id": msgID})
+			var msg models.Message
+			if err := h.db.GetContext(ctx, &msg, `INSERT INTO messages (id, conversation_id, company_id, sender_type, body, is_internal, status) VALUES ($1,$2,$3,'contact',$4,FALSE,'delivered')
+				RETURNING id, conversation_id, company_id, sender_type, sender_id, body, media_url, is_internal, status, created_at`, uuid.New(), convID, companyID, body); err == nil {
+				_, _ = h.db.ExecContext(ctx, `UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP, unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, convID)
+				if h.publisher != nil {
+					h.publisher.PublishEvent(companyID.String(), "message.received", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "body": body, "message_id": msg.ID})
+				}
+				// Without this the inbox only showed customer messages after a reload.
+				if h.hub != nil {
+					h.hub.BroadcastToCompany(companyID.String(), "new_message", msg)
+				}
 			}
 		}
 	}
-	// Flow resume: if inbound text and flows waiting_input
+	// Flows: answer a waiting question or start a matching automation.
 	if inboundBody != "" && h.flowEngine != nil && convID != uuid.Nil {
-		go h.flowEngine.ResumeWaitingExecutions(context.Background(), companyID, convID, inboundBody)
+		go h.flowEngine.HandleInbound(context.Background(), companyID, convID, channelID, inboundBody, isNewConv)
 	}
 	// Auto-triagem: roteia para fila correta (Chatwoot-like) de forma assíncrona
 	if h.queueService != nil && convID != uuid.Nil {
@@ -1376,6 +1395,27 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 	}
 	// Auto-CRM: cria card no pipeline padrão se não existir (spec 3.11)
 	go h.ensureCRMCard(context.Background(), companyID, contactID, convID)
+}
+
+// resolveInboundChannel finds the channel a webhook payload arrived on: the
+// Meta phone number, or the WAHA session name for WhatsApp via QR. Replies
+// go out through this channel, so a conversation without it cannot answer.
+func (h *Handler) resolveInboundChannel(ctx context.Context, companyID uuid.UUID, payload map[string]interface{}) *uuid.UUID {
+	if payload == nil {
+		return nil
+	}
+	var chID uuid.UUID
+	if pid, _ := extractMetaChannelIDs(payload); pid != "" {
+		if h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND config_json->>'phone_number_id' = $2 LIMIT 1`, companyID, pid) == nil {
+			return &chID
+		}
+	}
+	if session, _ := payload["session"].(string); session != "" {
+		if h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND type = 'whatsapp_qr' AND config_json->>'session_name' = $2 LIMIT 1`, companyID, session) == nil {
+			return &chID
+		}
+	}
+	return nil
 }
 
 func (h *Handler) ensureCRMCard(ctx context.Context, companyID, contactID, conversationID uuid.UUID) {

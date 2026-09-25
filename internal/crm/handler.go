@@ -16,6 +16,7 @@ import (
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
 	"wh-panel/internal/websocket"
+	"wh-panel/pkg/postgres"
 )
 
 type eventPublisher interface {
@@ -23,17 +24,17 @@ type eventPublisher interface {
 }
 
 type Handler struct {
-	db        *sqlx.DB
+	db        *postgres.DB
 	publisher eventPublisher
 	wsHub     *websocket.Hub
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
-	return &Handler{db: db}
+	return &Handler{db: postgres.Wrap(db)}
 }
 
 func NewHandlerWithPublisher(db *sqlx.DB, p eventPublisher) *Handler {
-	return &Handler{db: db, publisher: p}
+	return &Handler{db: postgres.Wrap(db), publisher: p}
 }
 
 func (h *Handler) SetWebSocketHub(hub *websocket.Hub) {
@@ -129,7 +130,7 @@ func (h *Handler) CreatePipeline(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Pipeline name is required"})
 	}
 
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database transaction error"})
 	}
@@ -184,7 +185,7 @@ func (h *Handler) UpdatePipeline(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
 	}
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "DB error"})
 	}
@@ -367,7 +368,7 @@ func (h *Handler) ReorderStages(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
 	}
-	tx, _ := h.db.Beginx()
+	tx, _ := h.db.BeginTxx(c.UserContext(), nil)
 	defer tx.Rollback()
 	for idx, sid := range req.OrderedIDs {
 		_, _ = tx.ExecContext(c.UserContext(), `UPDATE crm_stages SET order_index=$1 WHERE id=$2 AND pipeline_id=$3 AND company_id=$4`, idx+1, sid, pID, companyID)
