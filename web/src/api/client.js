@@ -55,13 +55,23 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      let errorData;
+      let errorData = null;
       try {
         errorData = await response.json();
       } catch {
-        errorData = { error: response.statusText || 'Erro na requisição' };
+        // Proxy or gateway errors come back as HTML/plain text.
       }
-      throw new Error(errorData.error || `Erro ${response.status}`);
+      if (errorData?.error) {
+        const err = new Error(errorData.error);
+        err.status = response.status;
+        err.data = errorData;
+        throw err;
+      }
+      throw new Error(
+        response.status >= 500
+          ? 'O servidor não respondeu. Tente novamente em instantes.'
+          : `Não foi possível concluir a requisição (erro ${response.status}).`
+      );
     }
 
     // Return JSON or text
@@ -137,13 +147,13 @@ export class ApiClient {
     });
 
     if (!response.ok) {
-      let errorData;
+      let errorData = null;
       try {
         errorData = await response.json();
       } catch {
-        errorData = { error: response.statusText || 'Erro no upload' };
+        // Non-JSON error body.
       }
-      throw new Error(errorData.error || `Erro ${response.status}`);
+      throw new Error(errorData?.error || `Não foi possível enviar o arquivo (erro ${response.status}).`);
     }
 
     return response.json();

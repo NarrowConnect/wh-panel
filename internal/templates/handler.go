@@ -20,20 +20,21 @@ import (
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
 	"wh-panel/pkg/meta"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db         *sqlx.DB
+	db         *postgres.DB
 	metaClient *meta.Client
 	jwtSecret  string
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
-	return &Handler{db: db}
+	return &Handler{db: postgres.Wrap(db)}
 }
 
 func NewHandlerWithMeta(db *sqlx.DB, metaClient *meta.Client, jwtSecret string) *Handler {
-	return &Handler{db: db, metaClient: metaClient, jwtSecret: jwtSecret}
+	return &Handler{db: postgres.Wrap(db), metaClient: metaClient, jwtSecret: jwtSecret}
 }
 
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
@@ -406,7 +407,7 @@ func (h *Handler) resolveMetaCredentials(ctx context.Context, companyID uuid.UUI
 	var q string
 	var args []interface{}
 	if channelID != nil {
-		q = `SELECT credentials_encrypted, config_json FROM channels WHERE id=$1 AND company_id=$2`
+		q = `SELECT credentials_encrypted, config_json FROM channels WHERE id=$1 AND company_id=$2 AND type IN ('whatsapp_meta','whatsapp_official') AND status='active'`
 		args = []interface{}{*channelID, companyID}
 	} else {
 		q = `SELECT credentials_encrypted, config_json FROM channels WHERE company_id=$1 AND type IN ('whatsapp_meta','whatsapp_official') AND status='active' LIMIT 1`
@@ -466,9 +467,6 @@ func (h *Handler) CreateTemplate(c *fiber.Ctx) error {
 	compBytes, _ := json.Marshal(req.Components)
 
 	status := "draft"
-	if req.SubmitMeta {
-		status = "pending"
-	}
 
 	tmplID := uuid.New()
 	query := `INSERT INTO templates (id, company_id, channel_id, name, category, language, components_json, status) 
@@ -482,22 +480,13 @@ func (h *Handler) CreateTemplate(c *fiber.Ctx) error {
 	}
 
 	if req.SubmitMeta {
-		log.Printf("[MetaTemplates] Submitting validated template %s (%s) to Meta Graph API...", newTmpl.Name, newTmpl.ID)
-		var metaID string
-		if h.metaClient != nil {
-			wabaID, token := h.resolveMetaCredentials(c.UserContext(), companyID, req.ChannelID)
-			if wabaID != "" {
-				if id, err := h.metaClient.SubmitTemplate(c.UserContext(), wabaID, token, req.Name, category, lang, req.Components); err == nil {
-					metaID = id
-				} else {
-					log.Printf("[MetaTemplates] Graph API submit failed (fallback to mock): %v", err)
-				}
-			}
+		metaID, submitErr := h.submitTemplate(c.UserContext(), companyID, req.ChannelID, req.Name, category, lang, req.Components)
+		if submitErr != nil {
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": submitErr.Error(), "template_id": newTmpl.ID, "status": "draft"})
 		}
-		if metaID == "" {
-			metaID = "meta_tmpl_" + uuid.New().String()[:8]
+		if _, err := h.db.ExecContext(c.UserContext(), `UPDATE templates SET meta_template_id=$1, status='pending' WHERE id=$2 AND company_id=$3`, metaID, newTmpl.ID, companyID); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Template enviado à Meta, mas falhou ao salvar. Sincronize antes de tentar novamente."})
 		}
-		_, _ = h.db.ExecContext(c.UserContext(), `UPDATE templates SET meta_template_id = $1, status = 'pending' WHERE id = $2`, metaID, newTmpl.ID)
 		newTmpl.MetaTemplateID = &metaID
 		newTmpl.Status = "pending"
 	}
@@ -622,24 +611,16 @@ func (h *Handler) SubmitToMeta(c *fiber.Ctx) error {
 		})
 	}
 
-	metaID := ""
-	if h.metaClient != nil {
-		wabaID, token := h.resolveMetaCredentials(c.UserContext(), companyID, t.ChannelID)
-		if wabaID != "" {
-			if id, err := h.metaClient.SubmitTemplate(c.UserContext(), wabaID, token, t.Name, t.Category, t.Language, components); err == nil {
-				metaID = id
-			} else {
-				log.Printf("[MetaTemplates] SubmitToMeta Graph API failed (fallback mock): %v", err)
-			}
-		}
-	}
-	if metaID == "" {
-		metaID = "meta_tmpl_" + uuid.New().String()[:8]
+	metaID, submitErr := h.submitTemplate(c.UserContext(), companyID, t.ChannelID, t.Name, t.Category, t.Language, components)
+	if submitErr != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": submitErr.Error()})
 	}
 	query := `UPDATE templates SET meta_template_id = $1, status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND company_id = $3 RETURNING id, status, meta_template_id, updated_at`
 
 	var updated models.Template
-	_ = h.db.GetContext(c.UserContext(), &updated, query, metaID, tmplID, companyID)
+	if err := h.db.GetContext(c.UserContext(), &updated, query, metaID, tmplID, companyID); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Template enviado à Meta, mas falhou ao salvar. Sincronize antes de tentar novamente."})
+	}
 
 	return c.JSON(fiber.Map{
 		"message":          "Template validado e submetido para aprovação da Meta Graph API",
@@ -661,4 +642,15 @@ func extractTemplateVariables(componentsJSON string) []string {
 		}
 	}
 	return vars
+}
+
+func (h *Handler) submitTemplate(ctx context.Context, companyID uuid.UUID, channelID *uuid.UUID, name, category, language string, components interface{}) (string, error) {
+	if h.metaClient == nil {
+		return "", errors.New("Integração Meta indisponível")
+	}
+	waba, token := h.resolveMetaCredentials(ctx, companyID, channelID)
+	if waba == "" || token == "" {
+		return "", errors.New("Conecte um canal oficial com credenciais válidas antes de submeter o template")
+	}
+	return h.metaClient.SubmitTemplate(ctx, waba, token, name, category, language, components)
 }

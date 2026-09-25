@@ -11,16 +11,17 @@ import (
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db        *sqlx.DB
+	db        *postgres.DB
 	jwtSecret string
 }
 
 func NewHandler(db *sqlx.DB, jwtSecret string) *Handler {
 	return &Handler{
-		db:        db,
+		db:        postgres.Wrap(db),
 		jwtSecret: jwtSecret,
 	}
 }
@@ -133,7 +134,7 @@ func (h *Handler) SaveAIProvider(c *fiber.Ctx) error {
 		if req.Provider == "openai" {
 			modelName = "gpt-4o-mini"
 		} else if req.Provider == "anthropic" {
-			modelName = "claude-3-5-sonnet"
+			modelName = "claude-opus-5"
 		} else if req.Provider == "deepseek" {
 			modelName = "deepseek-chat"
 		} else {

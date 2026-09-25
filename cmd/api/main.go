@@ -92,6 +92,9 @@ func main() {
 			"migrations/000013_crm_clickup.up.sql",
 			"migrations/000014_meta_compliance.up.sql",
 			"migrations/000015_data_deletion_requests.up.sql",
+			"migrations/000016_enforce_rls.up.sql",
+			"migrations/000017_tenant_role.up.sql",
+			"migrations/000018_flow_runtime.up.sql",
 		}
 		for _, file := range migrationFiles {
 			if _, err := os.Stat(file); err == nil {
@@ -100,6 +103,7 @@ func main() {
 				}
 			}
 		}
+		log.Printf("[PostgreSQL] %s", postgres.ConfigureTenantRole(context.Background(), db))
 	}
 
 	// 2. Connect to Redis
@@ -127,7 +131,6 @@ func main() {
 	wsHub := websocket.NewHub()
 	eventPublisher := integrations.NewEventPublisher(db)
 	campaignsDispatcher := campaigns.NewDispatcher(db, redisClient)
-	campaignsDispatcher.StartStreamWorker(context.Background())
 
 	// 5. Initialize Fiber App
 	app := fiber.New(fiber.Config{
@@ -193,7 +196,7 @@ func main() {
 	metaAppID := getEnv("META_APP_ID", "")
 	metaAppSecret := getEnv("META_APP_SECRET", "")
 	metaVerifyToken := getEnv("META_VERIFY_TOKEN", "")
-	metaAPIVersion := getEnv("META_API_VERSION", "v20.0")
+	metaAPIVersion := getEnv("META_API_VERSION", "v26.0")
 	metaAccessToken := getEnv("META_ACCESS_TOKEN", "")
 	metaConfigID := getEnv("META_CONFIG_ID", "")
 
@@ -205,13 +208,16 @@ func main() {
 	}
 
 	metaClient := meta.NewClient(meta.Config{
-		AppID:       metaAppID,
-		AppSecret:   metaAppSecret,
-		VerifyToken: metaVerifyToken,
-		APIVersion:  metaAPIVersion,
-		AccessToken: metaAccessToken,
-		ConfigID:    metaConfigID,
+		AppID:                 metaAppID,
+		AppSecret:             metaAppSecret,
+		VerifyToken:           metaVerifyToken,
+		APIVersion:            metaAPIVersion,
+		AccessToken:           metaAccessToken,
+		ConfigID:              metaConfigID,
+		EmbeddedSignupVersion: getEnv("META_EMBEDDED_SIGNUP_VERSION", "v4"),
 	})
+	campaignsDispatcher.ConfigureMeta(metaClient, jwtSecret)
+	campaignsDispatcher.StartStreamWorker(context.Background())
 
 	// Initialize WAHA (WhatsApp HTTP API) client
 	wahaBaseURL := getEnv("WAHA_BASE_URL", "http://localhost:3000")
@@ -233,6 +239,14 @@ func main() {
 	contactsHandler := contacts.NewHandler(db)
 	conversationsHandler := conversations.NewHandler(db, redisClient, wsHub, metaClient, wahaClient, jwtSecret)
 	conversationsHandler.SetPublisher(eventPublisher)
+	channelsHandler.SetBroadcaster(wsHub)
+	// Flows send through the conversations handler (Meta/WAHA delivery),
+	// assign operators through the queues service, and stop when a person replies.
+	flowsEngine.Configure(conversationsHandler, queuesService, jwtSecret)
+	conversationsHandler.SetFlowEngine(flowsEngine)
+	if db != nil {
+		flowsEngine.Start(context.Background())
+	}
 	queuesHandler := queues.NewHandler(db, queuesService)
 	dashboardHandler := dashboard.NewHandler(db)
 	templatesHandler := templates.NewHandlerWithMeta(db, metaClient, jwtSecret)

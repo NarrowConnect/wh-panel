@@ -1,226 +1,95 @@
-# 🚀 Guia de Ativação do Aplicativo Meta (WhatsApp Cloud API & Embedded Signup)
+# Configurar a Meta e conectar um canal no WH Panel
 
-Este guia contém o passo a passo definitivo para configurar o aplicativo no **Meta for Developers**, ativar o fluxo de **Embedded Signup** (Cadastro Incorporado), adicionar números online sem bloqueios e configurar os **Webhooks** no ecossistema do **WH - Panel**.
+Revisado em 17/09/2026. Este guia corresponde ao fluxo implementado no projeto.
 
----
+## Configuração recomendada
 
-## 📋 Sumário
-1. [Pré-requisitos e Checklist Inicial](#1-pré-requisitos-e-checklist-inicial)
-2. [Criação e Configuração do Aplicativo na Meta](#2-criação-e-configuração-do-aplicativo-na-meta)
-3. [Configuração dos Webhooks](#3-configuração-dos-webhooks)
-4. [Configuração do Embedded Signup (Onboarding de Clientes)](#4-configuração-do-embedded-signup-onboarding-de-clientes)
-5. [Adição e Verificação do Número Online (Sem Erros)](#5-adição-e-verificação-do-número-online-sem-erros)
-6. [Geração do Token Permanente (System User Token)](#6-geração-do-token-permanente-system-user-token)
-7. [Variáveis de Ambiente (`.env`)](#7-variáveis-de-ambiente-env)
-8. [Boas Práticas, Limites (Tiers) e Troubleshooting](#8-boas-práticas-limites-tiers-e-troubleshooting)
+Para o WH Panel conectar números de diferentes empresas, use seu próprio aplicativo empresarial Meta com WhatsApp Cloud API e Facebook Login for Business, configurado como Tech Provider. Crie uma configuração **WhatsApp Embedded Signup v4**, com cadastro completo do número. O exemplo oficial da Meta recomenda v4 para produção [1]. A versão do cadastro (`v4`) é independente da versão Graph API (`v26.0`).
 
----
+No painel da Meta:
 
-## 1. Pré-requisitos e Checklist Inicial
+1. Vincule o aplicativo ao portfólio empresarial da plataforma e conclua a verificação empresarial/etapas de Tech Provider exigidas para sua conta.
+2. Em Facebook Login for Business / Embedded Signup Builder, crie uma configuração cuja variação seja WhatsApp Embedded Signup e cujo produto seja WhatsApp Cloud API.
+3. Configure os ativos de conta WhatsApp e telefone necessários para gerenciar números, templates e mensagens. Use token de usuário do sistema empresarial (business integration system user), destinado ao cliente que autorizou o cadastro. Confira a expiração oferecida no seu painel: o código não renova tokens automaticamente. Não trate um token temporário de teste como permanente.
+4. Solicite `whatsapp_business_management` e `whatsapp_business_messaging`. Não acrescente permissões de anúncios, páginas ou Instagram para este fluxo. `business_management` não é usado pelos endpoints deste cadastro.
+5. Copie o ID da configuração para `META_CONFIG_ID`. Ele não é o App ID, WABA ID ou Phone Number ID.
+6. Para atender clientes externos, conclua App Review/acesso necessário às permissões e publique o aplicativo. Em desenvolvimento, teste com usuários que tenham função no app [2].
 
-Antes de iniciar no painel da Meta, certifique-se de ter em mãos:
+Esta implementação usa o cadastro **Cloud API padrão**. Não selecione apenas compartilhamento de WABA, app-only ou coexistência com o WhatsApp Business do celular: esses fluxos precisam de tratamento adicional e são recusados quando não retornam um número compatível. Não apague uma conta WhatsApp existente como tentativa de resolver erros; planeje a migração ou implemente coexistência separadamente.
 
-- [ ] **Meta Business Suite (Gerenciador de Negócios):** Uma conta de BM criada em [business.facebook.com](https://business.facebook.com).
-- [ ] **Conta de Desenvolvedor Meta:** Cadastrada em [developers.facebook.com](https://developers.facebook.com).
-- [ ] **Domínio com SSL / HTTPS:** Obrigatório para a URL de Webhook e para carregar o Facebook SDK no frontend.
-- [ ] **Forma de Pagamento Cadastrada:** No Gerenciador do WhatsApp do seu BM (para cobrança oficial de conversas e templates fora da janela de 24h).
-- [ ] **Número de Telefone Dedicado:**
-  - O número **NÃO PODE** estar atualmente logado em nenhum aplicativo WhatsApp (nem WhatsApp padrão, nem WhatsApp Business no celular).
-  - Se o número estiver em um celular, abra o WhatsApp > **Configurações / Ajustes > Conta > Apagar minha conta** (apenas desinstalar o app não é suficiente).
-  - O número deve ser capaz de receber **SMS internacional** ou **Ligação telefônica** para confirmação de código de 6 dígitos.
+## Domínios e OAuth
 
----
+Use HTTPS. Adicione o domínio do frontend em App Domains e habilite o login via SDK JavaScript. Em Facebook Login for Business, cadastre as URLs reais onde o botão é usado em Allowed Domains for the JavaScript SDK e Valid OAuth Redirect URIs [2].
 
-## 2. Criação e Configuração do Aplicativo na Meta
+Exemplo: `https://app.seudominio.com/`. Se sua aplicação usa rotas com caminhos próprios, cadastre a URL exata apresentada pelo navegador. Não copie `/channels` do exemplo antigo sem conferir a rota real. A URL do webhook é do backend, não a URL da tela de login.
 
-### Passo 2.1: Criar o App
-1. Acesse [developers.facebook.com/apps](https://developers.facebook.com/apps) e clique em **Criar aplicativo** (*Create App*).
-2. Selecione o caso de uso: **Outro** (*Other*) ou **Empresa** (*Business*).
-3. Selecione o tipo de aplicativo: **Negócios** (*Business*).
-4. Preencha os dados:
-   - **Nome de exibição do app:** Ex: `WH Panel - Cloud API`
-   - **E-mail de contato do app:** Seu e-mail corporativo.
-   - **Conta do Gerenciador de Negócios:** Selecione o seu BM oficial.
-5. Clique em **Criar aplicativo**.
-
-### Passo 2.2: Adicionar os Produtos
-No painel do aplicativo recém-criado:
-1. Localize o card **WhatsApp** e clique em **Configurar** (*Set up*).
-2. Localize o card **Login do Facebook para Empresas** (*Facebook Login for Business*) e clique em **Configurar** (*Set up*).
-
----
-
-## 3. Configuração dos Webhooks
-
-O webhook é o canal pelo qual a Meta envia para a sua aplicação os eventos em tempo real (mensagens recebidas, status de envio `sent`/`delivered`/`read`, respostas de botões e status de aprovação de templates).
-
-### Passo 3.1: Configurar a URL e o Token de Verificação
-1. No menu lateral do app na Meta, vá em **WhatsApp** > **Configuração** (*Configuration*).
-2. No bloco **Webhook**, clique em **Editar** (*Edit*).
-3. Preencha os campos:
-   - **URL de retorno de chamada (Callback URL):**
-     ```text
-     https://api.seudominio.com/webhooks/meta
-     ```
-   - **Verificar token (Verify Token):**
-     ```text
-     narrow_wh_verify_secret_2026
-     ```
-     *(Defina uma chave segura e idêntica à variável `META_VERIFY_TOKEN` do seu `.env`)*.
-4. Clique em **Verificar e Salvar** (*Verify and Save*).
-   > O backend responderá automaticamente ao desafio `hub.challenge` com status HTTP 200.
-
-### Passo 3.2: Inscrever-se nos Campos do Webhook
-Após salvar a URL, clique em **Gerenciar campos de webhook** (*Manage Webhook Fields*) e assine os seguintes tópicos obrigatórios:
-
-| Campo | Obrigatório? | Descrição |
-| :--- | :---: | :--- |
-| `messages` | **SIM** | Recebe mensagens de texto, áudio, imagem, botões e confirmações de leitura. |
-| `message_template_status_update` | **SIM** | Notifica quando um template HSM for **APPROVED**, **REJECTED** ou **PAUSED**. |
-| `phone_number_quality_update` | Recomendado | Alerta sobre mudanças na saúde do número (Green, Yellow, Red). |
-| `phone_number_name_update` | Recomendado | Alerta de aprovação do Nome de Exibição do WhatsApp. |
-| `account_review_update` | Recomendado | Status de verificação da conta WABA. |
-
----
-
-## 4. Configuração do Embedded Signup (Onboarding de Clientes)
-
-O **Embedded Signup** permite que os usuários do painel conectem seus próprios números e contas do WhatsApp diretamente pela interface via popup oficial da Meta, sem necessidade de criar apps manualmente.
-
-### Passo 4.1: Configurar o Facebook Login for Business
-1. No menu lateral, acesse **Login do Facebook para Empresas** > **Configurações**.
-2. Em **URIs de redirecionamento do OAuth válidos**, adicione:
-   ```text
-   https://app.seudominio.com
-   https://app.seudominio.com/channels
-   ```
-3. Em **Domínios permitidos para o SDK do JavaScript**, adicione o domínio do seu frontend:
-   ```text
-   https://app.seudominio.com
-   ```
-
-### Passo 4.2: Permissões Necessárias (Scopes)
-Para o fluxo de Embedded Signup funcionar com autonomia total de envio e gestão, as seguintes permissões do OAuth devem ser solicitadas:
-- `whatsapp_business_management` (criar/gerenciar templates, WABAs e números).
-- `whatsapp_business_messaging` (enviar e receber mensagens em nome da conta).
-- `business_management` (leitura de ativos da empresa).
-
-### Passo 4.3: Configurar a Funcionalidade de Onboarding
-1. No menu lateral da Meta, acesse **WhatsApp** > **Configuração Rápida** (*Quickstart*) ou **Incorporação de Cadastro** (*Embedded Signup*).
-2. Vincule a **Solução de Parceiro** ou crie uma **Configuração de Incorporação** (*Configuration ID* / `config_id`).
-3. O fluxo disparado no frontend via JavaScript SDK:
-```javascript
-window.fbAsyncInit = function() {
-  FB.init({
-    appId: '<META_APP_ID>',
-    autoLogAppEvents: true,
-    xfbml: true,
-    version: 'v20.0'
-  });
-};
-
-// Disparo do popup de Onboarding:
-FB.login(function(response) {
-  if (response.authResponse) {
-    const code = response.authResponse.code;
-    // Envia o code para o backend trocar pelo access_token da WABA conectada
-  }
-}, {
-  config_id: '<CONFIG_ID_OPCIONAL>',
-  scope: 'whatsapp_business_management,whatsapp_business_messaging',
-  response_type: 'code'
-});
-```
-
----
-
-## 5. Adição e Verificação do Número Online (Sem Erros)
-
-Para adicionar um número diretamente pelo Gerenciador da Meta ou pela API sem falhas:
-
-### Passo 5.1: Regras do Nome de Exibição (Display Name)
-A Meta rejeita nomes que não cumpram as diretrizes. Siga estas regras:
-- **Consistência:** O nome deve ter relação direta com a empresa cadastrada no CNPJ ou com o domínio do site (ex: `Narrow Tech - Suporte`).
-- **Sem letras MAIÚSCULAS exageradas:** Evite `SUPER ATENDIMENTO TOP`. Use `Super Atendimento`.
-- **Sem emojis:** Emojis não são permitidos no nome de exibição oficial da Cloud API.
-- **Sem sufixos "WhatsApp":** Nunca use a palavra "WhatsApp" ou "Zap" no nome.
-
-### Passo 5.2: Adicionar o Número
-1. No Gerenciador de Negócios, vá em **Gerenciador do WhatsApp** > **Contas do WhatsApp** > selecione sua WABA > **Números de telefone**.
-2. Clique em **Adicionar número de telefone**.
-3. Digite o **Nome de exibição** e o **Fuso horário / Categoria**.
-4. Insira o número com DDI e DDD (ex: `+55 11 99999-9999`).
-5. Selecione o método de verificação:
-   - **SMS:** Ideal para celulares móveis com boa recepção.
-   - **Ligação telefônica:** Obrigatório para números fixos (0800, 4004 ou telefones fixos locais). *Certifique-se de que a URA ou ramal não bloqueie chamadas automáticas em inglês/português.*
-6. Insira o código de 6 dígitos recebido.
-7. Defina o **PIN de verificação em duas etapas** (guarde este código de 6 dígitos; ele protege a linha contra invasões).
-
----
-
-## 6. Geração do Token Permanente (System User Token)
-
-Para o seu backend Narrow/WH Panel operar de forma contínua sem que o token expire a cada 24 horas:
-
-1. Acesse o **Meta Business Suite** > **Configurações do Negócio** (`business.facebook.com/settings`).
-2. No menu lateral, acesse **Usuários** > **Usuários do sistema** (*System Users*).
-3. Clique em **Adicionar**:
-   - Nome: `WH Panel Admin System User`
-   - Função: **Administrador**.
-4. Clique em **Adicionar ativos** (*Add Assets*):
-   - Em **Aplicativos**: selecione seu app e conceda **Controle Total**.
-   - Em **Contas do WhatsApp**: selecione sua WABA e conceda **Controle Total**.
-5. Clique em **Gerar novo token** (*Generate New Token*):
-   - Selecione o aplicativo criado.
-   - Expiração do token: **Nunca** (*Never*).
-   - Marque os escopos:
-     - `whatsapp_business_messaging`
-     - `whatsapp_business_management`
-6. Copie o token gerado (começa com `EAA...`). **Salve em local seguro, pois ele não será exibido novamente.**
-
----
-
-## 7. Variáveis de Ambiente (`.env`)
-
-Preencha o arquivo `.env` do seu backend com as credenciais obtidas:
+## Variáveis do ambiente
 
 ```dotenv
-# ==========================================
-# META CLOUD API OFICIAL
-# ==========================================
-# ID do Aplicativo (Painel do Desenvolvedor > Configurações Básicas)
-META_APP_ID=123456789012345
-
-# Chave Secreta do Aplicativo (Configurações Básicas > Chave Secreta)
-META_APP_SECRET=a1b2c3d4e5f60718293a4b5c6d7e8f90
-
-# Token de Verificação do Webhook (Configurado no Passo 3.1)
-META_VERIFY_TOKEN=narrow_wh_verify_secret_2026
-
-# Versão da Graph API
-META_API_VERSION=v20.0
-
-# Token Permanente do Usuário do Sistema (Passo 6)
-META_ACCESS_TOKEN=EAAB...SEU_TOKEN_AQUI...
+META_APP_ID=
+META_APP_SECRET=
+META_CONFIG_ID=
+META_VERIFY_TOKEN=
+META_API_VERSION=v26.0
+META_EMBEDDED_SIGNUP_VERSION=v4
+META_ACCESS_TOKEN=
 ```
 
----
+| Variável | Como preencher |
+| --- | --- |
+| `META_APP_ID` | ID do seu aplicativo Meta. |
+| `META_APP_SECRET` | Segredo do mesmo aplicativo; apenas no backend. Também verifica a assinatura HMAC dos eventos POST. |
+| `META_CONFIG_ID` | ID da configuração de Embedded Signup criada no mesmo app. |
+| `META_VERIFY_TOKEN` | Segredo aleatório escolhido por você, idêntico ao informado no cadastro do webhook. Valida o desafio GET; não é o App Secret. |
+| `META_API_VERSION` | Versão Graph API compatível com seu app. O projeto mantém `v26.0`; confirme no painel antes de mudar. |
+| `META_EMBEDDED_SIGNUP_VERSION` | `v4`, recomendado. `v3` existe apenas para compatibilidade explícita com uma configuração legada. |
+| `META_ACCESS_TOKEN` | Deixe vazio para Embedded Signup. O token de cada cliente é obtido no cadastro e salvo criptografado no seu canal. |
 
-## 8. Boas Práticas, Limites (Tiers) e Troubleshooting
+O `.env` local foi atualizado com campos ausentes, sem substituir valores existentes. Ainda é necessário fornecer App ID, App Secret, Config ID e Verify Token reais. Não há credenciais reais de Meta incluídas pelo projeto. Em produção, configure as mesmas variáveis no EasyPanel/serviço backend; editar um `.env` local não atualiza o servidor remoto.
 
-### 🟢 Níveis de Limite de Mensagens (Messaging Limits)
-Toda nova conta do WhatsApp Cloud API inicia com limite de envio de mensagens ativas (iniciadas pela empresa):
-- **Tier 1:** 1.000 clientes únicos / 24h.
-- **Tier 2:** 10.000 clientes únicos / 24h.
-- **Tier 3:** 100.000 clientes únicos / 24h.
-- **Tier 4:** Ilimitado.
+`APP_URL` deve apontar para a origem HTTPS pública do backend, por exemplo `https://api.seudominio.com`. Preserve `JWT_SECRET` entre reinícios: ele também participa da proteção das credenciais armazenadas. Alterá-lo sem migração pode impedir a leitura de tokens de canais existentes.
 
-> **Importante:** Mensagens de resposta a clientes (dentro da janela de 24 horas aberta pelo usuário) **não contam** para esse limite e não têm custo adicional de template.
+Após preencher, recrie/reinicie o serviço backend. O Compose já encaminha `META_EMBEDDED_SIGNUP_VERSION` ao contêiner. Não exponha App Secret, tokens ou PIN em variáveis de frontend.
 
-### 🛡️ Evitar Bloqueios e Manter Classificação Verde (*Quality Rating*)
-1. **Templates Relevantes:** Só envie mensagens para contatos com Opt-in prévio confirmado.
-2. **Botão de Descadastramento:** Em campanhas em massa, inclua um botão de ação rápida "Sair da lista" ou "Parar".
-3. **Erros Comuns:**
-   - `Error 131030: Message failed to send`: O número do destinatário não tem WhatsApp ou você atingiu o limite de envio diário.
-   - `Error 100: Invalid parameter`: O template enviado não possui as variáveis correspondentes cadastradas na Meta.
-   - `Error 190: Invalid OAuth access token`: O token expirou ou perdeu permissões no Usuário do Sistema.
+## Webhook
+
+Cadastre na Meta:
+
+- Callback: `https://api.seudominio.com/webhooks/meta`.
+- Verify Token: o valor de `META_VERIFY_TOKEN`.
+- Campo `messages` para eventos de mensagens.
+- Campo `message_template_status_update` para mudanças de status dos templates.
+
+O cadastro registra o telefone via `/{PHONE_NUMBER_ID}/register` e inscreve o app na WABA via `/{WABA_ID}/subscribed_apps`, operações também presentes no exemplo oficial [3]. Configurar a URL do app não substitui a inscrição na WABA. Erros nessas etapas impedem que o painel anuncie conexão concluída.
+
+Todos os endpoints Meta de recebimento exigem `X-Hub-Signature-256` válido. Um POST manual sem assinatura deve retornar 401. A rota específica por canal não serve para contornar essa proteção.
+
+## Adicionar o canal
+
+1. Entre na empresa correta do WH Panel com perfil administrador ou supervisor.
+2. Abra Canais → Conectar Canal → Meta Oficial e informe o nome do canal.
+3. Informe o PIN de duas etapas: escolha e guarde seis dígitos para um número novo, ou informe o PIN atual do número existente. **Não é o código SMS/ligação.** O PIN é enviado apenas para registrar o número; não é salvo pelo painel.
+4. Clique em Conectar WhatsApp Oficial e conclua o popup: autorize o app, selecione a WABA e o número correto e finalize a verificação solicitada pela Meta.
+5. Aguarde a confirmação no painel. O backend valida o token e a associação WABA/número, confirma registro e inscrição, e só então salva o canal ativo.
+6. Envie uma mensagem real de um telefone externo para esse número e responda em Conversas dentro da janela de atendimento.
+7. Sincronize Templates e confira os status vindos da Meta. Uma falha de submissão mantém o template local em rascunho; não há aprovação ou ID fictício.
+
+Dois números de uma mesma WABA devem gerar dois canais. Reconectar o mesmo número na mesma empresa atualiza o canal. Um número já vinculado a outra empresa é recusado; a transferência exige resolver a vinculação anterior.
+
+## Testes e limites desta entrega
+
+Os testes automatizados usam respostas simuladas da Graph API e banco simulado. Não substituem uma homologação real no seu app, pois não há credenciais Meta configuradas neste ambiente.
+
+- Mensagens de texto só recebem status `sent` após confirmação da API; sem mensagem recebida ou após 24 horas, texto livre é bloqueado.
+- O status `sent` significa aceitação pela API, não confirmação de leitura. A correlação de recibos `delivered/read` e a ingestão completa de mídia/eventos em lote ainda não estão implementadas neste fluxo.
+- Os simuladores de Homologação Meta não enviam mensagens, não registram opt-in real e não comprovam aprovação. Use Canais, Conversas e Templates para homologação.
+- Campanhas agora usam envio real de templates aprovados, sem variáveis ou cabeçalhos de mídia. Esses parâmetros precisam de uma interface própria antes de serem habilitados; exemplos de aprovação não são valores reais de envio. Garanta que a lista tenha consentimento válido: os simuladores não fornecem esse controle.
+- A fila de campanhas usa Postgres e respeita o limite configurado (até 600/min), independentemente de Redis. O destinatário é reservado antes do envio. Uma interrupção entre a reserva e a resposta pode deixá-lo em `processing`; confira o resultado antes de qualquer reenvio, para evitar duplicação. O sistema não reenvia automaticamente operações de resultado incerto.
+- Tokens revogados/expirados exigem reconexão. Se a Meta retornar erro, a interface informa código/subcódigo sem expor os segredos.
+
+## Referências
+
+1. [Exemplo oficial Meta: versão do Embedded Signup e parâmetros do lançamento](https://github.com/fbsamples/business-messaging-sample-tech-provider-app/blob/main/app/components/ClientDashboard.tsx).
+2. [Exemplo oficial Meta: configuração do aplicativo e checklist de produção](https://github.com/fbsamples/business-messaging-sample-tech-provider-app#3-meta-developer-app).
+3. [Exemplo oficial Meta: troca do código, registro e inscrição de webhook](https://github.com/fbsamples/business-messaging-sample-tech-provider-app/blob/main/app/api/beUtils.ts).
+4. [Documentação Meta: implementação do Embedded Signup](https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/implementation). O acesso automatizado a esta página retornou HTTP 429 durante a revisão; os detalhes de lançamento foram conferidos no código oficial acima.

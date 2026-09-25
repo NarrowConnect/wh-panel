@@ -20,6 +20,7 @@ import (
 	"wh-panel/internal/tenant"
 	"wh-panel/pkg/crypto"
 	"wh-panel/pkg/meta"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/waha"
 )
 
@@ -28,7 +29,12 @@ type queueRouter interface {
 }
 
 type flowResumer interface {
-	ResumeWaitingExecutions(ctx context.Context, companyID, conversationID uuid.UUID, inboundText string) int
+	HandleInbound(ctx context.Context, companyID, conversationID uuid.UUID, channelID *uuid.UUID, text string, newConversation bool)
+}
+
+// broadcaster pushes realtime events to the company's open inboxes.
+type broadcaster interface {
+	BroadcastToCompany(companyID string, eventName string, data interface{})
 }
 
 type eventPublisher interface {
@@ -36,18 +42,24 @@ type eventPublisher interface {
 }
 
 type Handler struct {
-	db           *sqlx.DB
+	db           *postgres.DB
 	jwtSecret    string
 	metaClient   *meta.Client
 	wahaClient   *waha.Client
 	queueService queueRouter
 	flowEngine   flowResumer
 	publisher    eventPublisher
+	hub          broadcaster
+}
+
+// SetBroadcaster makes inbound messages appear live in Conversas.
+func (h *Handler) SetBroadcaster(b broadcaster) {
+	h.hub = b
 }
 
 func NewHandler(db *sqlx.DB, jwtSecret string, metaClient *meta.Client, wahaClient *waha.Client) *Handler {
 	return &Handler{
-		db:         db,
+		db:         postgres.Wrap(db),
 		jwtSecret:  jwtSecret,
 		metaClient: metaClient,
 		wahaClient: wahaClient,
@@ -168,6 +180,9 @@ func (h *Handler) CreateChannel(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Type and name are required"})
 	}
 
+	if req.Type == "whatsapp_meta" || req.Type == "whatsapp_official" {
+		return c.Status(400).JSON(fiber.Map{"error": "Use Conectar WhatsApp Oficial para validar e registrar o número na Meta"})
+	}
 	// Encrypt credentials JSON if provided
 	var encryptedCreds string
 	if len(req.Credentials) > 0 {
@@ -232,6 +247,14 @@ func (h *Handler) UpdateChannel(c *fiber.Ctx) error {
 	var req models.UpdateChannelRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
+	}
+
+	var currentType string
+	if err := h.db.GetContext(c.UserContext(), &currentType, `SELECT type FROM channels WHERE id=$1 AND company_id=$2`, channelID, companyID); err != nil {
+		return c.SendStatus(404)
+	}
+	if (currentType == "whatsapp_meta" || currentType == "whatsapp_official") && (len(req.Config) > 0 || len(req.Credentials) > 0) {
+		return c.Status(400).JSON(fiber.Map{"error": "Reconecte pelo cadastro oficial para alterar credenciais ou número"})
 	}
 
 	var encryptedCreds *string
@@ -338,16 +361,17 @@ func (h *Handler) GetMetaAppConfig(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"app_id":                h.metaClient.AppID(),
-		"config_id":             h.metaClient.ConfigID(),
-		"verify_token":          h.metaClient.VerifyToken(),
-		"api_version":           h.metaClient.APIVersion(),
-		"webhook_url":           webhookURL,
-		"app_id_configured":     h.metaClient.AppID() != "",
-		"app_secret_configured": h.metaClient.AppSecretConfigured(),
-		"config_id_configured":  h.metaClient.ConfigID() != "",
-		"has_connected_channel": hasConnectedChannel,
-		"has_waba_id":           hasWabaID,
+		"app_id":                  h.metaClient.AppID(),
+		"config_id":               h.metaClient.ConfigID(),
+		"embedded_signup_version": h.metaClient.EmbeddedSignupVersion(),
+		"verify_token_configured": h.metaClient.VerifyToken() != "",
+		"api_version":             h.metaClient.APIVersion(),
+		"webhook_url":             webhookURL,
+		"app_id_configured":       h.metaClient.AppID() != "",
+		"app_secret_configured":   h.metaClient.AppSecretConfigured(),
+		"config_id_configured":    h.metaClient.ConfigID() != "",
+		"has_connected_channel":   hasConnectedChannel,
+		"has_waba_id":             hasWabaID,
 	})
 }
 
@@ -361,6 +385,7 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 		ChannelName   string `json:"channel_name"`
 		WabaID        string `json:"waba_id"`
 		PhoneNumberID string `json:"phone_number_id"`
+		PIN           string `json:"pin"`
 	}
 	if err := c.BodyParser(&req); err != nil || req.Code == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Authorization code is required"})
@@ -371,19 +396,37 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 		channelName = "WhatsApp Oficial"
 	}
 
+	if !regexp.MustCompile(`^[0-9]{6}$`).MatchString(req.PIN) {
+		return c.Status(400).JSON(fiber.Map{"error": "Informe um PIN de 6 dígitos"})
+	}
+
 	// Exchange code on Meta Graph API
-	res, err := h.metaClient.ExchangeEmbeddedSignupCode(c.UserContext(), req.Code)
+	res, err := h.metaClient.ExchangeEmbeddedSignupCode(c.UserContext(), req.Code, req.WabaID, req.PhoneNumberID)
 	if err != nil {
 		log.Printf("[EmbeddedSignup] Error exchanging code: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("Meta authorization failed: %v", err)})
 	}
 
-	// Fallback to frontend session data if token inspection didn't resolve WABA/Phone ID
-	if res.WabaID == "" && req.WabaID != "" {
-		res.WabaID = req.WabaID
+	// Serialize connections for this phone across tenants and reject reassignment.
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
+	if err != nil {
+		return c.SendStatus(500)
 	}
-	if res.PhoneID == "" && req.PhoneNumberID != "" {
-		res.PhoneID = req.PhoneNumberID
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(c.UserContext(), `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, res.PhoneID); err != nil {
+		return c.SendStatus(500)
+	}
+	var owners []uuid.UUID
+	if err := tx.SelectContext(c.UserContext(), &owners, `SELECT company_id FROM channels WHERE type IN ('whatsapp_meta','whatsapp_official') AND config_json->>'phone_number_id'=$1`, res.PhoneID); err != nil {
+		return c.SendStatus(500)
+	}
+	for _, owner := range owners {
+		if owner != companyID {
+			return c.Status(409).JSON(fiber.Map{"error": "Este número já está vinculado a outra empresa"})
+		}
+	}
+	if err := h.metaClient.ActivateEmbeddedSignup(c.UserContext(), res, req.PIN); err != nil {
+		return c.Status(502).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	// Prepare credentials to encrypt
@@ -393,7 +436,10 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 		"phone_number_id": res.PhoneID,
 	}
 	credBytes, _ := json.Marshal(creds)
-	encCreds, _ := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+	encCreds, err := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Falha ao proteger credenciais"})
+	}
 
 	// Prepare channel config
 	configMap := map[string]interface{}{
@@ -408,11 +454,11 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 
 	// Check if a channel with this WABA ID or Phone Number ID already exists for this tenant
 	var existingID uuid.UUID
-	checkQuery := `SELECT id FROM channels WHERE company_id = $1 AND type = 'whatsapp_meta' AND (
-		(config_json->>'waba_id' != '' AND config_json->>'waba_id' = $2) OR 
-		(config_json->>'phone_number_id' != '' AND config_json->>'phone_number_id' = $3)
-	) LIMIT 1`
-	err = h.db.GetContext(c.UserContext(), &existingID, checkQuery, companyID, res.WabaID, res.PhoneID)
+	checkQuery := `SELECT id FROM channels WHERE company_id=$1 AND type IN ('whatsapp_meta','whatsapp_official') AND config_json->>'phone_number_id'=$2 LIMIT 1`
+	err = tx.GetContext(c.UserContext(), &existingID, checkQuery, companyID, res.PhoneID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return c.SendStatus(500)
+	}
 
 	var newChannel models.Channel
 	if err == nil && existingID != uuid.Nil {
@@ -424,7 +470,7 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 			updated_at = CURRENT_TIMESTAMP 
 			WHERE id = $4 AND company_id = $5 
 			RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
-		err = h.db.GetContext(c.UserContext(), &newChannel, updateQuery, channelName, encCreds, string(configBytes), existingID, companyID)
+		err = tx.GetContext(c.UserContext(), &newChannel, updateQuery, channelName, encCreds, string(configBytes), existingID, companyID)
 		if err != nil {
 			log.Printf("[EmbeddedSignup] Failed to update existing channel: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update connected channel"})
@@ -435,13 +481,16 @@ func (h *Handler) HandleEmbeddedSignup(c *fiber.Ctx) error {
 			VALUES ($1, $2, 'whatsapp_meta', $3, 'active', $4, $5) 
 			RETURNING id, company_id, type, name, status, config_json, created_at, updated_at`
 
-		err = h.db.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, channelName, encCreds, string(configBytes))
+		err = tx.GetContext(c.UserContext(), &newChannel, query, channelID, companyID, channelName, encCreds, string(configBytes))
 		if err != nil {
 			log.Printf("[EmbeddedSignup] Failed to insert channel: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save connected channel"})
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Falha ao salvar o canal"})
+	}
 	h.seedMetaTemplatesForCompany(c.UserContext(), companyID, newChannel.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -458,14 +507,14 @@ func (h *Handler) VerifyGlobalMetaWebhook(c *fiber.Ctx) error {
 
 	if mode == "subscribe" && token != "" {
 		if !h.metaClient.VerifyWebhookToken(token) {
-			log.Printf("[MetaWebhook] Verify token mismatch: received '%s'", token)
+			log.Print("[MetaWebhook] Verify token mismatch")
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Verify token mismatch"})
 		}
 		log.Println("[MetaWebhook] Narrow Meta App webhook verified successfully!")
 		return c.SendString(challenge)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ready", "app": "Narrow Meta App"})
+	return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Invalid verification challenge"})
 }
 
 // ReceiveGlobalMetaWebhook handles POST events from Narrow's Meta App with HMAC verification
@@ -479,7 +528,9 @@ func (h *Handler) ReceiveGlobalMetaWebhook(c *fiber.Ctx) error {
 	}
 
 	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 	}
 
@@ -490,30 +541,19 @@ func (h *Handler) ReceiveGlobalMetaWebhook(c *fiber.Ctx) error {
 }
 
 // VerifyChannelMetaWebhook handles channel-specific verification
-func (h *Handler) VerifyChannelMetaWebhook(c *fiber.Ctx) error {
-	token := c.Query("hub.verify_token")
-	challenge := c.Query("hub.challenge")
+func (h *Handler) VerifyChannelMetaWebhook(c *fiber.Ctx) error { return h.VerifyGlobalMetaWebhook(c) }
 
-	if token != "" {
-		if h.metaClient.VerifyWebhookToken(token) {
-			return c.SendString(challenge)
-		}
-	}
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ready"})
-}
-
-// ReceiveChannelMetaWebhook handles channel-specific incoming events (with HMAC when global secret configured)
+// ReceiveChannelMetaWebhook requires a valid signature on every delivery.
 func (h *Handler) ReceiveChannelMetaWebhook(c *fiber.Ctx) error {
 	signature := c.Get("X-Hub-Signature-256")
 	body := c.Body()
-	if signature != "" {
-		if !h.metaClient.VerifySignature(body, signature) {
-			log.Printf("[MetaWebhook] Invalid HMAC signature on channel webhook: %s", signature)
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid HMAC signature"})
-		}
+	if !h.metaClient.VerifySignature(body, signature) {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid HMAC signature"})
 	}
 	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
 		if err2 := c.BodyParser(&payload); err2 != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
 		}
@@ -533,22 +573,15 @@ func (h *Handler) processMetaEvent(ctx context.Context, payload map[string]inter
 		return
 	}
 
-	phoneNumberID, wabaID := extractMetaChannelIDs(payload)
+	phoneNumberID, _ := extractMetaChannelIDs(payload)
 
 	var companyID uuid.UUID
 	var err error
 	// 1. Prefer exact phone_number_id match (most precise per Meta docs)
 	if phoneNumberID != "" {
-		err = h.db.GetContext(ctx, &companyID, `SELECT company_id FROM channels WHERE config_json->>'phone_number_id' = $1 AND status = 'active' LIMIT 1`, phoneNumberID)
+		err = h.db.GetContext(ctx, &companyID, `SELECT MIN(company_id::text)::uuid AS company_id FROM channels WHERE config_json->>'phone_number_id' = $1 AND status = 'active' AND type IN ('whatsapp_meta','whatsapp_official') HAVING COUNT(DISTINCT company_id)=1`, phoneNumberID)
 	}
-	// 2. Fallback to waba_id
-	if (err != nil || companyID == uuid.Nil) && wabaID != "" {
-		err = h.db.GetContext(ctx, &companyID, `SELECT company_id FROM channels WHERE config_json->>'waba_id' = $1 AND status = 'active' LIMIT 1`, wabaID)
-	}
-	// 3. Fallback to channel_id in URL is handled by caller; final fallback = first active meta channel (legacy)
-	if err != nil || companyID == uuid.Nil {
-		err = h.db.GetContext(ctx, &companyID, `SELECT company_id FROM channels WHERE type IN ('whatsapp_meta','whatsapp_official') AND status = 'active' LIMIT 1`)
-	}
+	// Never route an unknown phone to another tenant.
 	if err == nil && companyID != uuid.Nil {
 		h.ensureContactAndConversation(ctx, companyID, name, phone, email, payload)
 	}
@@ -607,7 +640,13 @@ func (h *Handler) handleMetaTemplateStatusUpdate(ctx context.Context, payload ma
 				internalStatus = status
 			}
 			if tmplName != "" && internalStatus != "" {
-				_, _ = h.db.ExecContext(ctx, `UPDATE templates SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE LOWER(name)=LOWER($2)`, internalStatus, tmplName)
+				_, _ = h.db.ExecContext(ctx, `UPDATE templates t SET status=$1, updated_at=CURRENT_TIMESTAMP
+                    WHERE t.meta_template_id=$2 AND t.language=$3 AND EXISTS (
+                        SELECT 1 FROM channels ch WHERE ch.company_id=t.company_id
+                        AND ch.config_json->>'waba_id'=$4
+                        AND ch.type IN ('whatsapp_meta','whatsapp_official')
+                        AND (t.channel_id IS NULL OR t.channel_id=ch.id))`, internalStatus,
+					fmt.Sprint(value["message_template_id"]), value["message_template_language"], em["id"])
 				if reason != "" {
 					log.Printf("[MetaWebhook] Template %s → %s (reason: %s)", tmplName, internalStatus, reason)
 				} else {
@@ -936,7 +975,10 @@ func (h *Handler) CreateWAHASession(c *fiber.Ctx) error {
 		"waha_url":     h.wahaClient.BaseURL(),
 	}
 	credBytes, _ := json.Marshal(creds)
-	encCreds, _ := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+	encCreds, err := crypto.EncryptAES(string(credBytes), h.jwtSecret)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Falha ao proteger credenciais"})
+	}
 
 	cfgJSON, _ := json.Marshal(map[string]interface{}{
 		"session_name": req.SessionName,
@@ -1101,6 +1143,9 @@ func (h *Handler) ReceiveGenericWebhook(c *fiber.Ctx) error {
 		if dbChannelType != "" && dbChannelType != channelType {
 			log.Printf("[GenericWebhook] channel_type mismatch url=%s db=%s", channelType, dbChannelType)
 		}
+	}
+	if dbChannelType == "whatsapp_meta" || dbChannelType == "whatsapp_official" || channelType == "whatsapp_meta" || channelType == "whatsapp_official" {
+		return h.ReceiveChannelMetaWebhook(c)
 	}
 	// If company not resolved via channel_id, try fallback via webchat active channel lookup by type
 	if companyID == uuid.Nil && channelType == "webchat" {
@@ -1295,24 +1340,25 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 
 	// Ensure an open conversation exists for this contact
 	var convID uuid.UUID
+	var channelID *uuid.UUID
 	isNewConv := false
-	err := h.db.GetContext(ctx, &convID, `SELECT id FROM conversations WHERE company_id = $1 AND contact_id = $2 AND status IN ('open','pending') LIMIT 1`, companyID, contactID)
-	if err != nil || convID == uuid.Nil {
+	var existingConv struct {
+		ID        uuid.UUID  `db:"id"`
+		ChannelID *uuid.UUID `db:"channel_id"`
+	}
+	err := h.db.GetContext(ctx, &existingConv, `SELECT id, channel_id FROM conversations WHERE company_id = $1 AND contact_id = $2 AND status IN ('open','pending') LIMIT 1`, companyID, contactID)
+	if err == nil && existingConv.ID != uuid.Nil {
+		convID, channelID = existingConv.ID, existingConv.ChannelID
+	} else {
 		convID = uuid.New()
 		isNewConv = true
-		// Try to resolve channel_id from tenant routing context
-		var channelID *uuid.UUID
-		if rawPayload != nil {
-			if pid, _ := extractMetaChannelIDs(rawPayload); pid != "" {
-				var chID uuid.UUID
-				if err := h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND config_json->>'phone_number_id' = $2 LIMIT 1`, companyID, pid); err == nil {
-					channelID = &chID
-				}
-			}
-		}
+		channelID = h.resolveInboundChannel(ctx, companyID, rawPayload)
 		_, _ = h.db.ExecContext(ctx, `INSERT INTO conversations (id, company_id, contact_id, channel_id, status) VALUES ($1,$2,$3,$4,'open') ON CONFLICT DO NOTHING`, convID, companyID, contactID, channelID)
-		if h.publisher != nil && isNewConv {
+		if h.publisher != nil {
 			h.publisher.PublishEvent(companyID.String(), "conversation.created", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "channel_id": channelID})
+		}
+		if h.hub != nil {
+			h.hub.BroadcastToCompany(companyID.String(), "conversation_created", map[string]interface{}{"id": convID, "contact_id": contactID, "channel_id": channelID})
 		}
 	}
 	var inboundBody string
@@ -1320,17 +1366,23 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 	if rawPayload != nil {
 		if body := extractInboundText(rawPayload); body != "" {
 			inboundBody = body
-			msgID := uuid.New()
-			_, _ = h.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, company_id, sender_type, body, is_internal, status) VALUES ($1,$2,$3,'contact',$4,FALSE,'delivered') ON CONFLICT DO NOTHING`, msgID, convID, companyID, body)
-			_, _ = h.db.ExecContext(ctx, `UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP, unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, convID)
-			if h.publisher != nil {
-				h.publisher.PublishEvent(companyID.String(), "message.received", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "body": body, "message_id": msgID})
+			var msg models.Message
+			if err := h.db.GetContext(ctx, &msg, `INSERT INTO messages (id, conversation_id, company_id, sender_type, body, is_internal, status) VALUES ($1,$2,$3,'contact',$4,FALSE,'delivered')
+				RETURNING id, conversation_id, company_id, sender_type, sender_id, body, media_url, is_internal, status, created_at`, uuid.New(), convID, companyID, body); err == nil {
+				_, _ = h.db.ExecContext(ctx, `UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP, unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, convID)
+				if h.publisher != nil {
+					h.publisher.PublishEvent(companyID.String(), "message.received", map[string]interface{}{"conversation_id": convID, "contact_id": contactID, "body": body, "message_id": msg.ID})
+				}
+				// Without this the inbox only showed customer messages after a reload.
+				if h.hub != nil {
+					h.hub.BroadcastToCompany(companyID.String(), "new_message", msg)
+				}
 			}
 		}
 	}
-	// Flow resume: if inbound text and flows waiting_input
+	// Flows: answer a waiting question or start a matching automation.
 	if inboundBody != "" && h.flowEngine != nil && convID != uuid.Nil {
-		go h.flowEngine.ResumeWaitingExecutions(context.Background(), companyID, convID, inboundBody)
+		go h.flowEngine.HandleInbound(context.Background(), companyID, convID, channelID, inboundBody, isNewConv)
 	}
 	// Auto-triagem: roteia para fila correta (Chatwoot-like) de forma assíncrona
 	if h.queueService != nil && convID != uuid.Nil {
@@ -1343,6 +1395,27 @@ func (h *Handler) ensureContactAndConversation(ctx context.Context, companyID uu
 	}
 	// Auto-CRM: cria card no pipeline padrão se não existir (spec 3.11)
 	go h.ensureCRMCard(context.Background(), companyID, contactID, convID)
+}
+
+// resolveInboundChannel finds the channel a webhook payload arrived on: the
+// Meta phone number, or the WAHA session name for WhatsApp via QR. Replies
+// go out through this channel, so a conversation without it cannot answer.
+func (h *Handler) resolveInboundChannel(ctx context.Context, companyID uuid.UUID, payload map[string]interface{}) *uuid.UUID {
+	if payload == nil {
+		return nil
+	}
+	var chID uuid.UUID
+	if pid, _ := extractMetaChannelIDs(payload); pid != "" {
+		if h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND config_json->>'phone_number_id' = $2 LIMIT 1`, companyID, pid) == nil {
+			return &chID
+		}
+	}
+	if session, _ := payload["session"].(string); session != "" {
+		if h.db.GetContext(ctx, &chID, `SELECT id FROM channels WHERE company_id = $1 AND type = 'whatsapp_qr' AND config_json->>'session_name' = $2 LIMIT 1`, companyID, session) == nil {
+			return &chID
+		}
+	}
+	return nil
 }
 
 func (h *Handler) ensureCRMCard(ctx context.Context, companyID, contactID, conversationID uuid.UUID) {

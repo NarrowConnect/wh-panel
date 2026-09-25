@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -31,7 +30,9 @@ func Connect(cfg Config) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("error connecting to postgres: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
+	// Each authenticated request holds one connection for its duration (RLS),
+	// so leave room for workers and webhooks alongside concurrent requests.
+	db.SetMaxOpenConns(50)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
@@ -57,20 +58,4 @@ func RunMigrations(db *sqlx.DB, migrationFilePath string) error {
 
 	log.Println("[PostgreSQL] Migration executed:", migrationFilePath)
 	return nil
-}
-
-// SetTenantContext sets the PostgreSQL session variable app.current_company_id for Row Level Security
-func SetTenantContext(ctx context.Context, db *sqlx.DB, companyID string) error {
-	if companyID == "" {
-		_, err := db.ExecContext(ctx, "RESET app.current_company_id")
-		return err
-	}
-	_, err := db.ExecContext(ctx, "SET app.current_company_id = $1", companyID)
-	return err
-}
-
-// ResetTenantContext clears the RLS variable to avoid cross-tenant leak on pooled connections
-func ResetTenantContext(ctx context.Context, db *sqlx.DB) error {
-	_, err := db.ExecContext(ctx, "RESET app.current_company_id")
-	return err
 }

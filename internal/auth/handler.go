@@ -11,24 +11,25 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"wh-panel/internal/models"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/redis"
 )
 
 type Handler struct {
-	db          *sqlx.DB
+	db          *postgres.DB
 	jwtMgr      *JWTManager
 	redisClient *redis.Client
 }
 
 func NewHandler(db *sqlx.DB, jwtMgr *JWTManager) *Handler {
 	return &Handler{
-		db:     db,
+		db:     postgres.Wrap(db),
 		jwtMgr: jwtMgr,
 	}
 }
 
 func NewHandlerWithRedis(db *sqlx.DB, jwtMgr *JWTManager, rc *redis.Client) *Handler {
-	return &Handler{db: db, jwtMgr: jwtMgr, redisClient: rc}
+	return &Handler{db: postgres.Wrap(db), jwtMgr: jwtMgr, redisClient: rc}
 }
 
 func (h *Handler) RegisterRoutes(router fiber.Router) {
@@ -275,4 +276,3 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 		Company:      company,
 	})
 }
-

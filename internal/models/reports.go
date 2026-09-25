@@ -3,12 +3,12 @@ package models
 import "time"
 
 type ConversationsReportFilter struct {
-	StartDate   *time.Time `json:"start_date"`
-	EndDate     *time.Time `json:"end_date"`
-	ChannelID   *string    `json:"channel_id"`
-	UserID      *string    `json:"user_id"`
-	QueueID     *string    `json:"queue_id"`
-	Status      *string    `json:"status"`
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	ChannelID *string    `json:"channel_id"`
+	UserID    *string    `json:"user_id"`
+	QueueID   *string    `json:"queue_id"`
+	Status    *string    `json:"status"`
 }
 
 type ConversationReportItem struct {

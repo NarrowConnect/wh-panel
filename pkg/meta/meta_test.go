@@ -40,13 +40,16 @@ func TestMetaClientSignatureVerification(t *testing.T) {
 
 func TestMetaClientDefaults(t *testing.T) {
 	client := NewClient(Config{})
-	if client.ConfigID() != "894644480139460" {
-		t.Errorf("default config ID should be 894644480139460, got %s", client.ConfigID())
+	// configID and verifyToken must stay empty when not explicitly configured —
+	// falling back to a hardcoded value here would silently misconfigure any
+	// tenant/deployment other than the original one these values were tied to.
+	if client.ConfigID() != "" {
+		t.Errorf("default config ID should be empty when unset, got %s", client.ConfigID())
 	}
-	if client.APIVersion() != "v20.0" {
-		t.Errorf("default api version should be v20.0, got %s", client.APIVersion())
+	if client.APIVersion() != "v26.0" {
+		t.Errorf("default api version should be v26.0, got %s", client.APIVersion())
 	}
-	if client.VerifyToken() != "narrow_wh_verify_secret_2026" {
-		t.Errorf("default verify token mismatch, got %s", client.VerifyToken())
+	if client.VerifyToken() != "" {
+		t.Errorf("default verify token should be empty when unset, got %s", client.VerifyToken())
 	}
 }

@@ -12,11 +12,12 @@ import (
 
 	"wh-panel/internal/models"
 	"wh-panel/internal/websocket"
+	"wh-panel/pkg/postgres"
 	"wh-panel/pkg/redis"
 )
 
 type Service struct {
-	db            *sqlx.DB
+	db            *postgres.DB
 	redisClient   *redis.Client
 	wsHub         *websocket.Hub
 	memoryCounter uint64
@@ -24,7 +25,7 @@ type Service struct {
 
 func NewService(db *sqlx.DB, redisClient *redis.Client, wsHub *websocket.Hub) *Service {
 	return &Service{
-		db:          db,
+		db:          postgres.Wrap(db),
 		redisClient: redisClient,
 		wsHub:       wsHub,
 	}

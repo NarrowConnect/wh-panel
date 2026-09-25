@@ -16,14 +16,15 @@ import (
 	"wh-panel/internal/channels"
 	"wh-panel/internal/models"
 	"wh-panel/internal/tenant"
+	"wh-panel/pkg/postgres"
 )
 
 type Handler struct {
-	db *sqlx.DB
+	db *postgres.DB
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
-	return &Handler{db: db}
+	return &Handler{db: postgres.Wrap(db)}
 }
 
 func (h *Handler) RegisterProtectedRoutes(router fiber.Router) {
@@ -64,21 +65,21 @@ func (h *Handler) ListContacts(c *fiber.Ctx) error {
 
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		countQuery := `SELECT COUNT(*) FROM contacts WHERE company_id = $1 AND (name ILIKE $2 OR phone ILIKE $2 OR email ILIKE $2)`
+		countQuery := `SELECT COUNT(*) FROM contacts WHERE company_id = $1 AND status <> 'merged' AND (name ILIKE $2 OR phone ILIKE $2 OR email ILIKE $2)`
 		_ = h.db.GetContext(c.UserContext(), &total, countQuery, companyID, searchPattern)
 
 		query := `SELECT id, company_id, name, phone, email, avatar_url, status, notes, created_at, updated_at 
-			FROM contacts WHERE company_id = $1 AND (name ILIKE $2 OR phone ILIKE $2 OR email ILIKE $2)
+			FROM contacts WHERE company_id = $1 AND status <> 'merged' AND (name ILIKE $2 OR phone ILIKE $2 OR email ILIKE $2)
 			ORDER BY created_at DESC LIMIT $3 OFFSET $4`
 		if err := h.db.SelectContext(c.UserContext(), &list, query, companyID, searchPattern, limit, offset); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch contacts"})
 		}
 	} else {
-		countQuery := `SELECT COUNT(*) FROM contacts WHERE company_id = $1`
+		countQuery := `SELECT COUNT(*) FROM contacts WHERE company_id = $1 AND status <> 'merged'`
 		_ = h.db.GetContext(c.UserContext(), &total, countQuery, companyID)
 
 		query := `SELECT id, company_id, name, phone, email, avatar_url, status, notes, created_at, updated_at 
-			FROM contacts WHERE company_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			FROM contacts WHERE company_id = $1 AND status <> 'merged' ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 		if err := h.db.SelectContext(c.UserContext(), &list, query, companyID, limit, offset); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch contacts"})
 		}
@@ -279,7 +280,7 @@ func (h *Handler) MergeContacts(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Primary and secondary contact IDs must be different"})
 	}
 
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.UserContext(), nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database error"})
 	}
@@ -297,9 +298,18 @@ func (h *Handler) MergeContacts(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Secondary contact not found"})
 	}
 
-	// 3. Move custom field values from secondary to primary if not set in primary
-	moveValuesQuery := `UPDATE contact_custom_values SET contact_id = $1 WHERE contact_id = $2 ON CONFLICT DO NOTHING`
-	_, _ = tx.ExecContext(c.UserContext(), moveValuesQuery, primary.ID, secondary.ID)
+	// 3. Move custom field values from secondary to primary if not set in primary.
+	// UPDATE has no ON CONFLICT, so skip fields the primary already has and drop
+	// the secondary's leftovers; any error here must abort the merge.
+	moveValuesQuery := `UPDATE contact_custom_values s SET contact_id = $1
+		WHERE s.contact_id = $2
+		AND NOT EXISTS (SELECT 1 FROM contact_custom_values p WHERE p.contact_id = $1 AND p.custom_field_id = s.custom_field_id)`
+	if _, err := tx.ExecContext(c.UserContext(), moveValuesQuery, primary.ID, secondary.ID); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to move custom field values"})
+	}
+	if _, err := tx.ExecContext(c.UserContext(), `DELETE FROM contact_custom_values WHERE contact_id = $1`, secondary.ID); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to clean up merged contact values"})
+	}
 
 	// 4. Update primary with missing phone/email from secondary
 	if primary.Phone == nil && secondary.Phone != nil {

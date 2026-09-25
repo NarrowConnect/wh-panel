@@ -11,14 +11,15 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"wh-panel/internal/models"
+	"wh-panel/pkg/postgres"
 )
 
 type EventPublisher struct {
-	db *sqlx.DB
+	db *postgres.DB
 }
 
 func NewEventPublisher(db *sqlx.DB) *EventPublisher {
-	return &EventPublisher{db: db}
+	return &EventPublisher{db: postgres.Wrap(db)}
 }
 
 // PublishEvent sends HTTP POST webhooks asynchronously to all registered endpoints for a given event_type

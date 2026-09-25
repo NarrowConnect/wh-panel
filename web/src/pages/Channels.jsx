@@ -24,6 +24,28 @@ import {
 } from 'lucide-react';
 import ApiClient from '../api/client';
 import { QRCodeSVG } from 'qrcode.react';
+import MetaEmbeddedSignupButton from '../components/MetaEmbeddedSignupButton';
+import PageHeader from '../components/PageHeader';
+import { normalizePhone } from '../lib/phone';
+
+const channelStatusLabels = { active: 'Ativo', inactive: 'Inativo', disconnected: 'Desconectado', pending: 'Pendente' };
+
+const wahaStateLabels = {
+  WORKING: 'conectado',
+  STARTING: 'iniciando',
+  SCAN_QR_CODE: 'aguardando leitura do QR code',
+  FAILED: 'falha na conexão',
+  STOPPED: 'sessão parada',
+  UNKNOWN: 'verificando',
+};
+
+const sessionOf = (chan) => {
+  try {
+    return (chan.config_json && JSON.parse(chan.config_json)?.session_name) || chan.session_name || 'session_01';
+  } catch {
+    return chan.session_name || 'session_01';
+  }
+};
 
 export const Channels = () => {
   const [channels, setChannels] = useState([]);
@@ -32,11 +54,11 @@ export const Channels = () => {
   const [channelType, setChannelType] = useState('whatsapp_meta');
   const [channelName, setChannelName] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+  const [pageError, setPageError] = useState('');
+  const [modalError, setModalError] = useState('');
 
   // Meta Official Form Fields
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [metaConnecting, setMetaConnecting] = useState(false);
-  const [metaConfig, setMetaConfig] = useState(null);
 
   // WAHA (WhatsApp Non-Official) State
   const [wahaStatus, setWahaStatus] = useState(null);
@@ -53,10 +75,9 @@ export const Channels = () => {
 
   const fetchChannels = async () => {
     try {
-      const [chanData, wahaRes, metaCfgRes] = await Promise.allSettled([
+      const [chanData, wahaRes] = await Promise.allSettled([
         ApiClient.get('/channels'),
         ApiClient.get('/channels/waha/status'),
-        ApiClient.get('/channels/meta/config'),
       ]);
 
       if (chanData.status === 'fulfilled' && chanData.value) {
@@ -66,13 +87,7 @@ export const Channels = () => {
         // Fetch real per-session WAHA connection state for each QR channel
         const qrChannels = list.filter((c) => c.type === 'whatsapp_qr');
         if (qrChannels.length > 0) {
-          const sessionNames = qrChannels.map((c) => {
-            try {
-              return c.config_json ? (JSON.parse(c.config_json)?.session_name || 'session_01') : (c.session_name || 'session_01');
-            } catch {
-              return c.session_name || 'session_01';
-            }
-          });
+          const sessionNames = qrChannels.map(sessionOf);
           const statusResults = await Promise.allSettled(
             sessionNames.map((sn) => ApiClient.get(`/channels/waha/sessions/${sn}/status`))
           );
@@ -89,10 +104,6 @@ export const Channels = () => {
       if (wahaRes.status === 'fulfilled') {
         setWahaStatus(wahaRes.value);
       }
-
-      if (metaCfgRes.status === 'fulfilled' && metaCfgRes.value) {
-        setMetaConfig(metaCfgRes.value);
-      }
     } catch {
       setChannels([]);
     } finally {
@@ -100,165 +111,12 @@ export const Channels = () => {
     }
   };
 
-  // Use a ref to always have latest metaConfig in callbacks (avoids stale closure in fbAsyncInit)
-  const metaConfigRef = useRef(metaConfig);
-  const fbInitializedRef = useRef(false);
-  const metaEmbeddedDataRef = useRef({ waba_id: '', phone_number_id: '' });
-
-  useEffect(() => {
-    metaConfigRef.current = metaConfig;
-  }, [metaConfig]);
-
-  // Listen for Meta Embedded Signup postMessage events
-  useEffect(() => {
-    const handleMetaMessage = (event) => {
-      try {
-        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (data && (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'FINISH' || data.event === 'FINISH_ONLY')) {
-          if (data.data) {
-            metaEmbeddedDataRef.current = {
-              waba_id: data.data.waba_id || '',
-              phone_number_id: data.data.phone_number_id || '',
-            };
-          }
-        }
-      } catch {}
-    };
-    window.addEventListener('message', handleMetaMessage);
-    return () => window.removeEventListener('message', handleMetaMessage);
-  }, []);
-
-  // Initialize FB SDK — reads from ref to avoid stale closure
-  const initFbSdk = (cfg) => {
-    if (!window.FB) return;
-    const config = cfg || metaConfigRef.current;
-    const appId = config?.app_id;
-    if (!appId) {
-      console.log('[Meta SDK] Aguardando META_APP_ID do servidor...');
-      return;
-    }
-    if (fbInitializedRef.current) return; // Already initialized
-    window.FB.init({
-      appId,
-      autoLogAppEvents: true,
-      xfbml: false,
-      version: config?.api_version || 'v20.0',
-    });
-    fbInitializedRef.current = true;
-    console.log('[Meta SDK] FB.init() completed with appId:', appId);
-  };
-
   useEffect(() => {
     fetchChannels();
-
-    // Load Meta Facebook JavaScript SDK
-    if (!document.getElementById('facebook-jssdk')) {
-      window.fbAsyncInit = () => {
-        // Uses ref — always gets latest metaConfig
-        initFbSdk();
-      };
-
-      const script = document.createElement('script');
-      script.id = 'facebook-jssdk';
-      script.src = 'https://connect.facebook.net/pt_BR/sdk.js';
-      script.async = true;
-      script.defer = true;
-      script.crossOrigin = 'anonymous';
-      document.body.appendChild(script);
-    }
-
     return () => {
       if (qrPollIntervalRef.current) clearInterval(qrPollIntervalRef.current);
     };
   }, []);
-
-  // When metaConfig arrives from API, init FB SDK if it loaded first
-  useEffect(() => {
-    if (window.FB && metaConfig?.app_id && !fbInitializedRef.current) {
-      initFbSdk(metaConfig);
-    }
-  }, [metaConfig?.app_id]);
-
-  // Trigger Meta Official Embedded Signup Popup
-  const handleMetaEmbeddedSignup = () => {
-    const configId = metaConfig?.config_id;
-    const appId = metaConfig?.app_id;
-
-    if (!window.FB) {
-      alert('O SDK da Meta ainda está carregando. Aguarde alguns segundos e tente novamente.');
-      return;
-    }
-
-    if (!appId) {
-      alert('META_APP_ID não está configurado no servidor. Verifique o arquivo .env no backend.');
-      console.error('[Meta Embedded Signup] metaConfig:', metaConfig);
-      return;
-    }
-
-    if (!configId) {
-      alert('META_CONFIG_ID (Embedded Signup) não está configurado no servidor. Verifique o arquivo .env no backend.');
-      console.error('[Meta Embedded Signup] metaConfig:', metaConfig);
-      return;
-    }
-
-    // Ensure FB is initialized (idempotent — safe to call multiple times)
-    if (!fbInitializedRef.current) {
-      initFbSdk();
-    }
-
-    setMetaConnecting(true);
-
-    try {
-      window.FB.login(
-        function (response) {
-          console.log('[Meta Embedded Signup] FB.login response:', response);
-
-          if (response && response.authResponse && response.authResponse.code) {
-            ApiClient.post('/channels/meta/embedded-signup', {
-              code: response.authResponse.code,
-              channel_name: channelName || 'WhatsApp Oficial',
-              waba_id: metaEmbeddedDataRef.current?.waba_id || undefined,
-              phone_number_id: metaEmbeddedDataRef.current?.phone_number_id || undefined,
-            })
-              .then((res) => {
-                if (res && res.channel && res.channel.id) {
-                  setChannels((prev) => [res.channel, ...prev.filter((c) => c.id !== res.channel.id)]);
-                }
-                setShowConnectModal(false);
-                setChannelName('');
-                fetchChannels();
-                alert('🎉 WhatsApp conectado com sucesso!');
-              })
-              .catch((err) => {
-                alert(`Erro ao vincular WhatsApp: ${err.message || 'Falha na autorização'}`);
-              })
-              .finally(() => {
-                setMetaConnecting(false);
-              });
-          } else {
-            console.warn('[Meta Embedded Signup] Conexão cancelada ou sem código retornado', response);
-            if (response && response.error_message) {
-              alert(`Aviso da Meta: ${response.error_message}`);
-            }
-            setMetaConnecting(false);
-          }
-        },
-        {
-          config_id: configId,
-          response_type: 'code',
-          override_default_response_type: true,
-          extras: {
-            feature: 'whatsapp_embedded_signup',
-            sessionInfoVersion: '2',
-          },
-        }
-      );
-    } catch (err) {
-      console.error('[Meta Embedded Signup] FB.login() threw:', err);
-      alert('Erro ao abrir o popup da Meta. Verifique o console do navegador.');
-      setMetaConnecting(false);
-    }
-  };
 
   // WAHA QR Code Polling Loop
   const startWahaQrScanner = async (sessionName) => {
@@ -297,15 +155,10 @@ export const Channels = () => {
     qrPollIntervalRef.current = setInterval(poll, 4000);
   };
 
-  // Normalizes to E.164-ish format required for WhatsApp/Meta messaging (digits only, with leading +)
-  const normalizePhone = (raw) => {
-    const digits = (raw || '').replace(/[^\d]/g, '');
-    if (digits.length < 8 || digits.length > 15) return null;
-    return `+${digits}`;
-  };
 
   const handleCreateChannel = async (e) => {
     e.preventDefault();
+    if (channelType === 'whatsapp_meta') return;
     if (channelType === 'whatsapp_qr') {
       // Start WAHA session
       const session = wahaSessionName || `session_${Math.random().toString(36).substring(2, 7)}`;
@@ -320,7 +173,7 @@ export const Channels = () => {
         fetchChannels();
         startWahaQrScanner(session);
       } catch (err) {
-        alert(err.message || 'Erro ao iniciar sessão WAHA');
+        setModalError(err.message || 'Não foi possível iniciar a sessão do QR code.');
       }
       return;
     }
@@ -329,7 +182,7 @@ export const Channels = () => {
     if (channelType === 'whatsapp_meta' && phoneNumber.trim()) {
       normalizedPhone = normalizePhone(phoneNumber);
       if (!normalizedPhone) {
-        alert('Número de WhatsApp inválido. Informe o número completo com código do país e DDD (ex: +55 11 99999-8888).');
+        setModalError('Número de WhatsApp inválido. Informe o número completo com código do país e DDD, por exemplo +55 11 99999-8888.');
         return;
       }
     }
@@ -344,43 +197,34 @@ export const Channels = () => {
         },
       };
 
-      const res = await ApiClient.post('/channels', payload);
-      const createdChan = res || {
-        id: `chan_${Date.now()}`,
-        name: payload.name,
-        type: channelType,
-        status: 'active',
-        phone_number: normalizedPhone || phoneNumber,
-        created_at: 'Hoje',
-      };
-
-      setChannels((prev) => [createdChan, ...prev]);
+      await ApiClient.post('/channels', payload);
       setShowConnectModal(false);
       setChannelName('');
       setPhoneNumber('');
       fetchChannels();
     } catch (err) {
-      alert(err.message || 'Erro ao conectar canal');
+      setModalError(err.message || 'Não foi possível conectar o canal.');
     }
   };
 
   const handleLogoutWaha = async (sessionName) => {
-    if (!confirm('Deseja realmente desconectar esta sessão do WhatsApp WAHA?')) return;
+    if (!window.confirm('Desconectar este número? Será preciso ler o QR code de novo para reconectar.')) return;
     try {
       await ApiClient.post(`/channels/waha/sessions/${sessionName}/logout`);
-      alert('Sessão desconectada.');
+      setPageError('');
       fetchChannels();
     } catch (err) {
-      alert('Erro ao desconectar sessão.');
+      setPageError(err.message || 'Não foi possível desconectar a sessão.');
     }
   };
 
   const handleRestartWaha = async (sessionName) => {
     try {
       await ApiClient.post(`/channels/waha/sessions/${sessionName}/restart`);
+      setPageError('');
       startWahaQrScanner(sessionName);
     } catch (err) {
-      alert('Erro ao reiniciar sessão.');
+      setPageError(err.message || 'Não foi possível reiniciar a sessão.');
     }
   };
 
@@ -391,256 +235,165 @@ export const Channels = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] bg-[#07080c] select-none">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-[#0e1017] border border-white/[0.06]">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-500/20">
-            <Radio className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2 font-sans">
-              <span>Canais de Atendimento & Conexões Oficiais</span>
-            </h2>
-            <p className="text-xs text-slate-400">
-              WhatsApp Oficial Meta e WhatsApp VPS WAHA
-            </p>
-          </div>
-        </div>
+    <div className="h-full overflow-y-auto">
+    <div className="p-6 space-y-5">
+      <PageHeader
+        description="Conecte o WhatsApp oficial da Meta ou um número via QR code. Todas as conversas chegam na mesma caixa de Conversas."
+        actions={
+          <>
+            <span
+              className="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-white/[0.08] text-xs text-slate-300"
+              title="Servidor WAHA usado pelas conexões via QR code"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${wahaStatus?.status === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              Servidor QR {wahaStatus?.status === 'connected' ? 'online' : 'offline'}
+            </span>
+            <button type="button" onClick={() => { setShowConnectModal(true); setScanningQr(false); setModalError(''); }} className="btn btn-primary">
+              <Plus strokeWidth={2} />
+              Conectar canal
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          {/* WAHA Server Health Status Badge */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#12141c] border border-white/[0.06] text-xs">
-            <span className={`w-2 h-2 rounded-full ${wahaStatus?.status === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-            <span className="text-slate-300 font-bold">Servidor:</span>
-            <span className="text-purple-400 font-mono text-[11px] font-bold">{wahaStatus?.status === 'connected' ? 'Online' : 'Offline'}</span>
-          </div>
+      {pageError && <p role="alert" className="alert-error">{pageError}</p>}
 
-          <button
-            onClick={() => { setShowConnectModal(true); setScanningQr(false); }}
-            className="px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-purple-500/25 flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Conectar Canal</span>
-          </button>
+      <div className="glass-card px-4 py-3 flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] text-white">URL de webhook da Meta</p>
+          <p className="text-xs text-slate-500">Cadastre no app da Meta para receber mensagens e status dos canais oficiais.</p>
         </div>
+        <code className="px-2.5 h-8 inline-flex items-center rounded-md bg-white/[0.03] border border-white/[0.06] font-mono text-xs text-slate-300 truncate max-w-full sm:max-w-sm">
+          {window.location.origin}/webhooks/meta
+        </code>
+        <button type="button" onClick={() => copyText(`${window.location.origin}/webhooks/meta`, 'meta_global')} className="btn btn-secondary">
+          {copiedId === 'meta_global' ? <CheckCircle strokeWidth={1.75} /> : <Copy strokeWidth={1.75} />}
+          {copiedId === 'meta_global' ? 'Copiada' : 'Copiar'}
+        </button>
       </div>
 
-      {/* Global Meta App Info Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-purple-950/20 to-slate-900 border border-blue-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0">
-            <Shield className="w-5 h-5" />
-          </div>
-          <div>
-            <h4 className="font-bold text-white text-sm">Aplicativo Meta Oficial</h4>
-            <p className="text-slate-300 text-[11px]">
-              Validação automática de webhooks e envio oficial Cloud API via variáveis de ambiente (.env)
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 font-mono text-[10px] text-blue-300 truncate max-w-xs">
-            {window.location.origin}/webhooks/meta
-          </div>
-          <button
-            onClick={() => copyText(`${window.location.origin}/webhooks/meta`, 'meta_global')}
-            className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] flex items-center gap-1 transition-colors"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>{copiedId === 'meta_global' ? 'Copiado!' : 'Copiar URL'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Channels List Grid */}
       {channels.length === 0 && !loading ? (
-        <div className="p-8 rounded-3xl bg-[#0e1017] border border-white/[0.06] text-center space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
-            <Radio className="w-6 h-6" />
-          </div>
-          <h4 className="text-sm font-bold text-white">Nenhum canal conectado ainda</h4>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Conecte seu WhatsApp Oficial com 1 Clique ou inicie uma sessão WAHA.
+        <div className="glass-card px-6 py-14 text-center space-y-3">
+          <Radio className="w-5 h-5 text-slate-500 mx-auto" strokeWidth={1.75} />
+          <h2 className="text-sm font-medium text-white">Nenhum canal conectado</h2>
+          <p className="text-[13px] text-slate-400 max-w-md mx-auto">
+            Conecte o WhatsApp oficial pela Meta ou leia um QR code para começar a receber conversas.
           </p>
-          <button
-            onClick={() => { setShowConnectModal(true); setScanningQr(false); }}
-            className="mt-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all inline-flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Conectar Primeiro Canal</span>
+          <button type="button" onClick={() => { setShowConnectModal(true); setScanningQr(false); setModalError(''); }} className="btn btn-primary mt-2">
+            <Plus strokeWidth={2} />
+            Conectar canal
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(Array.isArray(channels) ? channels : []).map((chan) => {
-          const isMeta = chan.type === 'whatsapp_meta';
-          const isQR = chan.type === 'whatsapp_qr';
-          const isWebchat = chan.type === 'webchat';
-          const sessionName = chan.config_json ? (JSON.parse(chan.config_json)?.session_name || 'session_01') : (chan.session_name || 'session_01');
-
-          return (
-            <div
-              key={chan.id}
-              className="glass-card glass-card-hover p-5 rounded-2xl border border-slate-800 space-y-4 flex flex-col justify-between"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        isMeta
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : isQR
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-blue-500/20 text-blue-400'
-                      }`}
-                    >
-                      {isMeta ? <Radio className="w-5 h-5" /> : isQR ? <QrCode className="w-5 h-5" /> : <Globe className="w-5 h-5" />}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">{chan.name}</h4>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {isMeta ? 'Meta Cloud API' : isQR ? 'WAHA Servidor VPS' : 'Widget Web'}
+        <ul className="glass-card divide-y divide-white/[0.05]">
+          {channels.map((chan) => {
+            const isMeta = chan.type === 'whatsapp_meta' || chan.type === 'whatsapp_official';
+            const isQR = chan.type === 'whatsapp_qr';
+            const sessionName = sessionOf(chan);
+            const sessionState = isQR ? wahaSessionStatuses[sessionName] || 'UNKNOWN' : null;
+            const Icon = isMeta ? Radio : isQR ? QrCode : Globe;
+            const webhookUrl = `${window.location.origin}/webhooks/${isMeta ? 'meta' : 'waha'}`;
+            return (
+              <li key={chan.id} className="px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <Icon className="w-4 h-4 text-slate-400 flex-shrink-0" strokeWidth={1.75} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[13px] font-medium text-white truncate">{chan.name}</h3>
+                      <span className={`px-1.5 h-5 inline-flex items-center rounded-md border text-[11px] ${chan.status === 'active' ? 'text-emerald-300 border-emerald-500/25' : 'text-slate-400 border-white/[0.08]'}`}>
+                        {channelStatusLabels[chan.status] || chan.status || 'Ativo'}
                       </span>
                     </div>
+                    <p className="text-xs text-slate-500 truncate">
+                      {isMeta ? 'WhatsApp oficial · Meta Cloud API' : isQR ? `WhatsApp via QR code · sessão ${sessionName}` : 'Webchat'}
+                      {isMeta && chan.quality_rating && ` · qualidade ${chan.quality_rating}`}
+                      {isQR && (
+                        <span className={sessionState === 'WORKING' ? 'text-emerald-300' : sessionState === 'FAILED' ? 'text-rose-300' : 'text-amber-300'}>
+                          {' · '}{wahaStateLabels[sessionState] || sessionState}
+                        </span>
+                      )}
+                    </p>
                   </div>
-
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase">
-                    {chan.status || 'Ativo'}
-                  </span>
                 </div>
 
-                {isMeta && (
-                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-1">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Qualidade Meta:</span>
-                      <strong className="text-emerald-400 font-medium">{chan.quality_rating || 'GREEN'}</strong>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Validação:</span>
-                      <strong className="text-blue-300">App Meta (.env)</strong>
-                    </div>
-                  </div>
-                )}
-
-                {isQR && (() => {
-                  const sessionState = wahaSessionStatuses[sessionName] || 'UNKNOWN';
-                  const stateLabels = {
-                    WORKING: 'Conectado (WORKING)',
-                    STARTING: 'Iniciando sessão...',
-                    SCAN_QR_CODE: 'Aguardando leitura do QR Code',
-                    FAILED: 'Falha na conexão',
-                    STOPPED: 'Sessão parada',
-                    UNKNOWN: 'Verificando status...',
-                  };
-                  const stateColor = sessionState === 'WORKING' ? 'text-emerald-400' : sessionState === 'FAILED' ? 'text-rose-400' : 'text-amber-400';
-                  return (
-                    <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-1.5">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Sessão WAHA:</span>
-                        <strong className="text-amber-300 font-mono">{sessionName}</strong>
-                      </div>
-                      <div className="flex justify-between text-slate-400">
-                        <span>Estado:</span>
-                        <strong className={stateColor}>{stateLabels[sessionState] || sessionState}</strong>
-                      </div>
-
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                      <button
-                        onClick={() => handleRestartWaha(sessionName)}
-                        className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 flex items-center justify-center gap-1"
-                        title="Reconectar / Gerar QR Code"
-                      >
-                        <RotateCw className="w-3 h-3 text-amber-400" />
-                        <span>Reconectar</span>
-                      </button>
-                      <button
-                        onClick={() => handleLogoutWaha(sessionName)}
-                        className="p-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[11px]"
-                        title="Desconectar Sessão"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Webhook URL Endpoint Box */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-800 text-xs">
-                <div className="flex justify-between items-center text-slate-400">
-                  <span className="text-[11px] font-medium">Webhook Endpoint:</span>
-                  <button
-                    onClick={() => copyText(`${window.location.origin}/webhooks/${isMeta ? 'meta' : 'waha'}`, chan.id)}
-                    className="text-brand-400 hover:underline flex items-center gap-1 text-[11px]"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>{copiedId === chan.id ? 'Copiado!' : 'Copiar URL'}</span>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => copyText(webhookUrl, chan.id)} className="btn btn-secondary" title={webhookUrl}>
+                    {copiedId === chan.id ? <CheckCircle strokeWidth={1.75} /> : <Copy strokeWidth={1.75} />}
+                    {copiedId === chan.id ? 'Copiada' : 'URL do webhook'}
                   </button>
+                  {isQR && (
+                    <>
+                      <button type="button" onClick={() => handleRestartWaha(sessionName)} className="btn btn-secondary" title="Gerar um novo QR code para esta sessão">
+                        <RotateCw strokeWidth={1.75} />
+                        Reconectar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleLogoutWaha(sessionName)}
+                        className="btn btn-icon text-slate-500 hover:text-rose-300"
+                        aria-label={`Desconectar ${chan.name}`}
+                        title="Desconectar"
+                      >
+                        <LogOut strokeWidth={1.75} />
+                      </button>
+                    </>
+                  )}
                 </div>
-                <div className="p-2 rounded-lg bg-slate-900 font-mono text-[10px] text-slate-400 truncate">
-                  {window.location.origin}/webhooks/{isMeta ? 'meta' : 'waha'}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       {/* Connect Modal with WAHA Live QR Scanner */}
       {showConnectModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card rounded-2xl border border-slate-800 w-full max-w-xl p-6 space-y-4 animate-fade-in">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Radio className="w-4 h-4 text-emerald-400" />
-              <span>Conectar Canal de WhatsApp</span>
-            </h3>
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          onMouseDown={(e) => e.target === e.currentTarget && !scanningQr && setShowConnectModal(false)}
+        >
+          <div role="dialog" aria-modal="true" aria-label="Conectar canal" className="glass-card w-full max-w-xl p-5 space-y-4 my-auto shadow-2xl animate-fade-in">
+            <h2 className="text-[13px] font-medium text-white">Conectar canal</h2>
 
-            {/* Type Selector Tabs */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="segmented w-full" role="group" aria-label="Tipo de canal">
               {[
-                { id: 'whatsapp_meta', label: 'Meta Oficial', icon: Radio },
-                { id: 'whatsapp_qr', label: 'WhatsApp Não-Oficial (WAHA)', icon: QrCode },
-                { id: 'webchat', label: 'Widget Webchat', icon: Globe },
+                { id: 'whatsapp_meta', label: 'WhatsApp oficial', icon: Radio },
+                { id: 'whatsapp_qr', label: 'WhatsApp via QR', icon: QrCode },
+                { id: 'webchat', label: 'Webchat', icon: Globe },
               ].map((t) => (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => { setChannelType(t.id); setScanningQr(false); }}
-                  className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 text-center transition-all ${
-                    channelType === t.id
-                      ? 'bg-brand-500/15 border-brand-500 text-brand-400'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
+                  aria-pressed={channelType === t.id}
+                  onClick={() => { setChannelType(t.id); setScanningQr(false); setModalError(''); }}
+                  className="flex-1 justify-center"
                 >
-                  <t.icon className="w-4 h-4" />
-                  <span>{t.label}</span>
+                  <t.icon strokeWidth={1.75} />
+                  {t.label}
                 </button>
               ))}
             </div>
 
+            {modalError && <p role="alert" className="text-[13px] text-rose-300">{modalError}</p>}
+
             {!scanningQr ? (
               <form onSubmit={handleCreateChannel} className="space-y-3 pt-2">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Nome do Canal</label>
+                  <label htmlFor="channel-name" className="field-label">Nome do canal</label>
                   <input
+                    id="channel-name"
                     type="text"
                     required
-                    placeholder="Ex: WhatsApp Atendimento Principal"
+                    placeholder="Ex.: Atendimento principal"
                     value={channelName}
                     onChange={(e) => setChannelName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+                    className="field"
                   />
                 </div>
 
                 {channelType === 'whatsapp_meta' && (
                   <div className="space-y-4">
                     {/* Embedded Signup Fast Connect Banner */}
-                    <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-950/40 via-emerald-950/20 to-slate-900 border border-blue-800/40 space-y-3">
+                    <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-800/40 space-y-3">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400">
                           <Sparkles className="w-4 h-4" />
@@ -653,82 +406,58 @@ export const Channels = () => {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleMetaEmbeddedSignup}
-                        disabled={metaConnecting}
-                        className="w-full py-2.5 px-4 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.98] text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-60"
-                      >
-                        {metaConnecting ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Abrindo popup da Meta...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Radio className="w-4 h-4" />
-                            <span>Conectar WhatsApp com 1 Clique (Oficial)</span>
-                          </>
-                        )}
-                      </button>
+                      <MetaEmbeddedSignupButton
+                        channelName={channelName || 'WhatsApp Oficial'}
+                        onSuccess={(channel) => {
+                          if (channel?.id) {
+                            setChannels((prev) => [channel, ...prev.filter((c) => c.id !== channel.id)]);
+                          }
+                          setShowConnectModal(false);
+                          setChannelName('');
+                          fetchChannels();
+                        }}
+                      />
 
                       <p className="text-[10px] text-slate-400 text-center">
-                        ✓ Sem configurações complexas: o App Meta gerencia tokens, webhooks e entrega 24/7.
+                        O canal é ativado após a Meta confirmar o registro do número e a inscrição do webhook.
                       </p>
                     </div>
 
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-slate-800"></div>
-                      <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">ou vincule por número</span>
-                      <div className="flex-grow border-t border-slate-800"></div>
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Número de WhatsApp (com DDD)</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: +55 11 99999-8888"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                      />
-                    </div>
                   </div>
                 )}
 
                 {channelType === 'whatsapp_qr' && (
                   <div className="space-y-2.5">
-                    <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs text-amber-300">
-                      ⚡ Conexão direta com o servidor WAHA hospedado na VPS.
-                    </div>
+                    <p className="text-[13px] text-slate-400">
+                      Conexão não oficial pelo servidor WAHA: você lê um QR code com o celular. Não exige templates aprovados pela Meta.
+                    </p>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Nome da Sessão WAHA</label>
+                      <label htmlFor="waha-session" className="field-label">
+                        Nome da sessão <span className="text-slate-500">(opcional)</span>
+                      </label>
                       <input
+                        id="waha-session"
                         type="text"
-                        placeholder="Ex: session_atendimento_01"
+                        placeholder="Ex.: atendimento_01"
                         value={wahaSessionName}
                         onChange={(e) => setWahaSessionName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono"
+                        className="field font-mono text-xs"
                       />
                     </div>
                   </div>
                 )}
 
                 <div className="flex justify-end gap-2 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowConnectModal(false)}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
-                  >
+                  <button type="button" onClick={() => setShowConnectModal(false)} className="btn btn-secondary">
                     Cancelar
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-semibold hover:bg-brand-600 shadow-md shadow-brand-500/25"
-                  >
-                    {channelType === 'whatsapp_qr' ? 'Iniciar Sessão & Gerar QR Code' : 'Salvar Canal'}
-                  </button>
+                  {channelType !== 'whatsapp_meta' && (
+                    <button type="submit" className="btn btn-primary">
+                      {channelType === 'whatsapp_qr' ? 'Gerar QR code' : 'Salvar canal'}
+                    </button>
+                  )}
                 </div>
               </form>
             ) : (
@@ -803,6 +532,7 @@ export const Channels = () => {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 };

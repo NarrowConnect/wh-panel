@@ -1,52 +1,68 @@
 import React, { useState, useEffect } from 'react';
-import {
-  MessageSquare,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  TrendingUp,
-  Smile,
-  Users,
-  Radio,
-  Filter,
-  Calendar,
-  Sparkles,
-  ArrowDownRight,
-  Bot,
-  RefreshCw,
-  Sliders,
-  Layers,
-  Tag,
-  ChevronDown,
-  Zap,
-  ShieldAlert,
-  Play,
-  Share2,
-  ExternalLink,
-  Plus
-} from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import ApiClient from '../api/client';
+import PageHeader from '../components/PageHeader';
+
+// The dashboard API filters by day (start_date=YYYY-MM-DD), so periods are
+// counted in whole days back from today.
+const periods = [
+  { id: 'today', label: 'Hoje', days: 0 },
+  { id: '7d', label: '7 dias', days: 7 },
+  { id: '30d', label: '30 dias', days: 30 },
+];
+
+const startDateFor = (periodId) => {
+  const days = periods.find((p) => p.id === periodId)?.days ?? 0;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const statusLabels = {
+  open: 'Abertas',
+  pending: 'Pendentes',
+  resolved: 'Resolvidas',
+  closed: 'Fechadas',
+};
+
+const Panel = ({ title, aside, children }) => (
+  <section className="glass-card overflow-hidden">
+    <header className="flex items-center justify-between gap-3 px-5 h-12 border-b border-white/[0.06]">
+      <h2 className="text-[13px] font-medium text-white">{title}</h2>
+      {aside && <span className="text-xs text-slate-500 tabular-nums">{aside}</span>}
+    </header>
+    {children}
+  </section>
+);
+
+const Empty = ({ children }) => <p className="px-5 py-8 text-center text-[13px] text-slate-500">{children}</p>;
+
+const Stat = ({ label, value, children }) => (
+  <div className="bg-surface p-5 space-y-2 min-w-0">
+    <p className="text-xs text-slate-400">{label}</p>
+    <p className="text-2xl font-medium text-white tracking-tight tabular-nums">{value}</p>
+    <div className="text-xs text-slate-500">{children}</div>
+  </div>
+);
 
 export const Dashboard = () => {
   const [kpis, setKpis] = useState(null);
   const [channels, setChannels] = useState([]);
   const [attendants, setAttendants] = useState([]);
-  const [sentiment, setSentiment] = useState(null);
   const [funnel, setFunnel] = useState([]);
-  const [periodPreset, setPeriodPreset] = useState('24h');
-  const [timelineMonth, setTimelineMonth] = useState(1);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [periodPreset, setPeriodPreset] = useState('today');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const fetchDashboardData = async (period = periodPreset) => {
     setLoading(true);
     try {
-      const params = { period };
-      const [kpiRes, chanRes, attRes, sentRes, funRes] = await Promise.allSettled([
+      const params = { start_date: startDateFor(period) };
+      const [kpiRes, chanRes, attRes, funRes] = await Promise.allSettled([
         ApiClient.get('/dashboard/kpis', params),
         ApiClient.get('/dashboard/channels-volume', params),
         ApiClient.get('/dashboard/attendants-performance', params),
-        ApiClient.get('/dashboard/sentiment-analysis', params),
         ApiClient.get('/dashboard/funnel', params),
       ]);
 
@@ -59,11 +75,12 @@ export const Dashboard = () => {
         const list = Array.isArray(attRes.value) ? attRes.value : (attRes.value?.attendants || []);
         setAttendants(list);
       }
-      if (sentRes.status === 'fulfilled') setSentiment(sentRes.value || {});
       if (funRes.status === 'fulfilled') {
         const list = Array.isArray(funRes.value) ? funRes.value : (funRes.value?.funnel || []);
         setFunnel(list);
       }
+      const failed = [kpiRes, chanRes, attRes, funRes].find((r) => r.status === 'rejected');
+      setError(failed ? failed.reason?.message || 'Parte das métricas não carregou.' : '');
     } catch (err) {
       console.error('[Dashboard] Error fetching metrics:', err);
     } finally {
@@ -78,346 +95,143 @@ export const Dashboard = () => {
   const totalConversations = kpis?.total_conversations || 0;
   const openConversations = kpis?.open_conversations || 0;
   const resolvedConversations = kpis?.resolved_conversations || 0;
-  const resolutionRate = totalConversations > 0 ? ((resolvedConversations / totalConversations) * 100).toFixed(1) : '0.0';
-  const avgFirstResp = kpis?.avg_first_response_minutes ? `${kpis.avg_first_response_minutes.toFixed(1)} min` : '-';
-  const avgResMins = kpis?.avg_resolution_minutes ? `${kpis.avg_resolution_minutes.toFixed(1)} min` : '-';
-  const sentimentScore = kpis?.overall_sentiment_score ? Number(kpis.overall_sentiment_score).toFixed(2) : '0.00';
+  const resolutionRate = totalConversations > 0 ? (resolvedConversations / totalConversations) * 100 : 0;
+  const avgFirstResp = kpis?.avg_first_response_minutes ? `${kpis.avg_first_response_minutes.toFixed(1)} min` : '–';
+  const avgResMins = kpis?.avg_resolution_minutes ? `${kpis.avg_resolution_minutes.toFixed(1)} min` : '–';
+
+
+  const channelMax = Math.max(1, ...channels.map((ch) => ch.total_count || 0));
 
   return (
-    <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-4rem)] select-none">
-      {/* 1. Header & Filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 mb-1">
-            <span>Métricas em tempo real</span>
-            <span className="w-1 h-1 rounded-full bg-slate-600" />
-            <span className="text-slate-300 font-bold">
-              {channels.length} {channels.length === 1 ? 'canal ativo' : 'canais ativos'}
-            </span>
-          </div>
-          <h2 className="text-2xl font-black text-white tracking-tight font-sans">
-            Desempenho & Ativos Omnichannel
-          </h2>
-        </div>
-
-        {/* Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-full border border-white/[0.06]">
-            {['24h', '7d', '30d'].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriodPreset(p)}
-                className={`px-3 py-1 text-xs font-bold rounded-full transition-all ${
-                  periodPreset === p
-                    ? 'bg-white/[0.09] text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {p.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => fetchDashboardData(periodPreset)}
-            className="p-2 rounded-full bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
-            title="Atualizar Métricas"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-400' : ''}`} />
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Top Metric Cards & Banner */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Card 1: Total de Conversas */}
-        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Volume</p>
-              <p className="text-xs font-bold text-white">Total de Conversas</p>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[11px] text-slate-400 font-medium">Conversas no Período</p>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-black text-white tracking-tight">{totalConversations}</span>
-              <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {openConversations} abertas
-              </span>
-            </div>
-          </div>
-
-          <div className="relative pt-2">
-            <div className="w-full bg-white/[0.06] h-1.5 rounded-full overflow-hidden">
-              <div
-                className="bg-emerald-400 h-full rounded-full transition-all duration-500"
-                style={{ width: totalConversations > 0 ? `${Math.min(100, (resolvedConversations / totalConversations) * 100)}%` : '0%' }}
-              />
-            </div>
-            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
-              <span>{resolvedConversations} resolvidas</span>
-              <span>{resolutionRate}% taxa</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Tempo Médio de 1ª Resposta */}
-        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-500/20">
-              <Clock className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Agilidade</p>
-              <p className="text-xs font-bold text-white">TMPR (1ª Resposta)</p>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[11px] text-slate-400 font-medium">Média de Espera do Cliente</p>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-black text-white tracking-tight">{avgFirstResp}</span>
-              <span className="text-[11px] font-bold text-purple-400 flex items-center gap-0.5">
-                TMR: {avgResMins}
-              </span>
-            </div>
-          </div>
-
-          <div className="relative pt-2">
-            <div className="w-full bg-white/[0.06] h-1.5 rounded-full overflow-hidden">
-              <div className="bg-purple-500 h-full rounded-full w-[70%]" />
-            </div>
-            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
-              <span>Resolução: {avgResMins}</span>
-              <span>Meta: &lt; 2 min</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Satisfação & Sentimento */}
-        <div className="glass-card glass-card-hover p-4 rounded-2xl space-y-3 flex flex-col justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/20">
-              <Smile className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qualidade</p>
-              <p className="text-xs font-bold text-white">Sentimento do Cliente</p>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[11px] text-slate-400 font-medium">Score Médio</p>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-black text-white tracking-tight">{sentimentScore}</span>
-              <span className="text-[11px] font-bold text-emerald-400">
-                {sentiment?.positive_count || 0} positivos
-              </span>
-            </div>
-          </div>
-
-          <div className="relative pt-2">
-            <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-white/[0.06]">
-              {(() => {
-                const pos = sentiment?.positive_count || 0;
-                const neu = sentiment?.neutral_count || 0;
-                const neg = sentiment?.negative_count || 0;
-                const totalSentiment = pos + neu + neg || 1;
-                return (
-                  <>
-                    <div className="bg-emerald-400 h-full" style={{ width: `${(pos / totalSentiment) * 100}%` }} />
-                    <div className="bg-amber-400 h-full" style={{ width: `${(neu / totalSentiment) * 100}%` }} />
-                    <div className="bg-rose-500 h-full" style={{ width: `${(neg / totalSentiment) * 100}%` }} />
-                  </>
-                );
-              })()}
-            </div>
-            <div className="flex justify-between text-[9px] font-bold text-slate-500 mt-1">
-              <span>Positivos: {sentiment?.positive_count || 0}</span>
-              <span>Críticos: {sentiment?.negative_count || 0}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Accent Banner */}
-        <div className="relative overflow-hidden glass-card p-5 rounded-2xl flex flex-col justify-between space-y-4 border-purple-500/20">
-          <div className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 rounded-full bg-purple-500/20 blur-3xl" />
-          <div className="relative space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-extrabold text-sm text-white">WH Panel</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                Oficial Meta
-              </span>
-            </div>
-            <h3 className="text-base font-black text-white leading-tight font-sans">
-              Automação & Atendimento
-            </h3>
-            <p className="text-xs text-slate-300/80 leading-relaxed">
-              Integração completa com WhatsApp Cloud API, WAHA VPS e CRM.
-            </p>
-          </div>
-
-          <a
-            href="/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="relative w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-1.5"
-          >
-            <Zap className="w-4 h-4 fill-white" />
-            <span>Swagger API Docs</span>
-          </a>
-        </div>
-      </div>
-
-      {/* 3. Main Wide Analytics Box */}
-      <div className="glass-card p-6 rounded-2xl space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-              <span>Status dos Canais Conectados</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${channels.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-            </div>
-            <h3 className="text-xl font-black text-white tracking-tight font-sans">
-              Operação Multi-Tenant Ativa
-            </h3>
-          </div>
-        </div>
-
-        {/* Big Numbers */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          <div className="lg:col-span-6 space-y-3">
-            <p className="text-xs text-slate-400 font-semibold">Total de Mensagens no Banco</p>
-            <div className="flex items-baseline gap-3">
-              <span className="text-4xl sm:text-5xl font-black text-white tracking-tight font-sans">
-                {totalConversations}
-              </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
-                {channels.length} canais
-              </span>
-            </div>
-          </div>
-
-          <div className="lg:col-span-6 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-3">
-            <p className="text-xs font-bold text-white">Distribuição por Canal Real</p>
-            {channels.length > 0 ? (
-              <div className="space-y-2">
-                {channels.map((ch) => (
-                  <div key={ch.channel_id || ch.id} className="flex justify-between items-center text-xs">
-                    <span className="text-slate-300 font-medium">{ch.channel_name || ch.name}</span>
-                    <span className="font-mono text-purple-400 font-bold">{ch.total_count || 0} conversas</span>
-                  </div>
+    <div className="h-full overflow-y-auto">
+      <div className={`p-6 space-y-5 transition-opacity ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
+        <PageHeader
+          description={`${channels.length} ${channels.length === 1 ? 'canal com conversas' : 'canais com conversas'} no período.`}
+          actions={
+            <>
+              <div className="segmented" role="group" aria-label="Período">
+                {periods.map((p) => (
+                  <button key={p.id} type="button" aria-pressed={periodPreset === p.id} onClick={() => setPeriodPreset(p.id)}>
+                    {p.label}
+                  </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => fetchDashboardData(periodPreset)}
+                className="btn btn-secondary btn-icon"
+                title="Atualizar"
+                aria-label="Atualizar métricas"
+              >
+                <RefreshCw className={loading ? 'animate-spin' : ''} strokeWidth={1.75} />
+              </button>
+            </>
+          }
+        />
+
+        {error && <p role="alert" className="alert-error">{error} Os números abaixo podem estar incompletos.</p>}
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.06]">
+          <Stat label="Conversas" value={totalConversations}>
+            {openConversations} abertas · {resolvedConversations} resolvidas
+          </Stat>
+          <Stat label="Taxa de resolução" value={`${resolutionRate.toFixed(1)}%`}>
+            <div className="h-1 mt-1 rounded-full bg-white/[0.06] overflow-hidden">
+              <div className="h-full bg-emerald-400 rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, resolutionRate)}%` }} />
+            </div>
+          </Stat>
+          <Stat label="1ª resposta (média)" value={avgFirstResp}>
+            Do início da conversa à primeira resposta
+          </Stat>
+          <Stat label="Resolução (média)" value={avgResMins}>
+            Do início da conversa até resolver
+          </Stat>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <Panel title="Conversas por canal" aside={channels.length > 0 ? `${channels.length} canais` : null}>
+            {channels.length > 0 ? (
+              <ul className="divide-y divide-white/[0.05]">
+                {channels.map((ch) => (
+                  <li key={ch.channel_id || ch.id} className="px-5 py-3 space-y-2">
+                    <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                      <span className="text-slate-200 truncate">{ch.channel_name || ch.name}</span>
+                      <span className="text-slate-400 tabular-nums flex-shrink-0">{ch.total_count || 0}</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                      <div className="h-full bg-accent-400 rounded-full" style={{ width: `${((ch.total_count || 0) / channelMax) * 100}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <p className="text-xs text-slate-500">Nenhuma conversa registrada nos canais ainda.</p>
+              <Empty>Nenhuma conversa registrada nos canais ainda.</Empty>
             )}
-          </div>
+          </Panel>
+
+          <Panel title="Conversas por status" aside={totalConversations > 0 ? `${totalConversations} no total` : null}>
+            {funnel.length > 0 ? (
+              <ul className="divide-y divide-white/[0.05]">
+                {funnel.map((st) => {
+                  const pct = totalConversations > 0 ? Math.round((st.count / totalConversations) * 100) : 0;
+                  return (
+                    <li key={st.status} className="px-5 py-3 space-y-2">
+                      <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                        <span className="text-slate-200">{statusLabels[st.status] || st.status}</span>
+                        <span className="text-slate-400 tabular-nums">
+                          {st.count} <span className="text-slate-500">· {pct}%</span>
+                        </span>
+                      </div>
+                      <div className="h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                        <div className="h-full bg-accent-400 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <Empty>Nenhuma conversa no período.</Empty>
+            )}
+          </Panel>
         </div>
 
-        {/* 4 Bottom Metric Columns */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t border-white/[0.06]">
-          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abertas</p>
-            <p className="text-sm font-black text-white">{openConversations}</p>
-            <p className="text-[10px] text-slate-500">Aguardando atendimento</p>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Resolvidas</p>
-            <p className="text-sm font-black text-white">{resolvedConversations}</p>
-            <p className="text-[10px] text-slate-500">Encerradas com sucesso</p>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Taxa de Resolução</p>
-            <p className="text-sm font-black text-white">{resolutionRate}%</p>
-            <p className="text-[10px] text-slate-500">Eficiência geral</p>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TMPR</p>
-            <p className="text-sm font-black text-white">{avgFirstResp}</p>
-            <p className="text-[10px] text-slate-500">Primeira resposta</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Bottom Grid: Atendentes & Funil de Conversas Reais */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Atendentes Performance Real */}
-        <div className="glass-card p-5 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-purple-400" />
-              <span>Desempenho dos Atendentes</span>
-            </h4>
-            <span className="text-[10px] font-bold text-slate-400">Dados do Sistema</span>
-          </div>
-
+        <Panel title="Atendentes" aside={attendants.length > 0 ? `${attendants.length} com conversas` : null}>
           {attendants.length > 0 ? (
-            <div className="space-y-2">
-              {attendants.map((att) => (
-                <div key={att.user_id} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-300 font-bold text-xs flex items-center justify-center">
-                      {(att.user_name || 'U').charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-white leading-none">{att.user_name}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">{att.assigned_count} conversas atribuídas</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-purple-400">{att.resolved_count} resolvidas</span>
-                    <p className="text-[10px] text-slate-500">{att.avg_first_response_mins ? `${att.avg_first_response_mins.toFixed(1)}m resp.` : '-'}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500">
+                    <th className="px-5 py-2.5 font-normal">Atendente</th>
+                    <th className="px-5 py-2.5 font-normal text-right">Atribuídas</th>
+                    <th className="px-5 py-2.5 font-normal text-right">Resolvidas</th>
+                    <th className="px-5 py-2.5 font-normal text-right">1ª resposta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05] border-t border-white/[0.05]">
+                  {attendants.map((att) => (
+                    <tr key={att.user_id}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-6 h-6 rounded-md bg-white/[0.06] text-slate-200 text-[11px] font-medium flex items-center justify-center flex-shrink-0">
+                            {(att.user_name || 'U').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-slate-200 truncate">{att.user_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-right text-slate-300">{att.assigned_count}</td>
+                      <td className="px-5 py-3 text-right text-slate-300">{att.resolved_count}</td>
+                      <td className="px-5 py-3 text-right text-slate-400">
+                        {att.avg_first_response_mins ? `${att.avg_first_response_mins.toFixed(1)} min` : '–'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
-            <p className="text-xs text-slate-500 text-center py-4">Nenhum atendimento atribuído registrado ainda.</p>
+            <Empty>Nenhuma conversa atribuída a atendentes ainda.</Empty>
           )}
-        </div>
-
-        {/* Funil de Status Real */}
-        <div className="glass-card p-5 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-              <span>Funil de Status das Conversas</span>
-            </h4>
-            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-              {totalConversations} Total
-            </span>
-          </div>
-
-          {funnel.length > 0 ? (
-            <div className="space-y-2.5">
-              {funnel.map((st, i) => {
-                const pct = totalConversations > 0 ? Math.round((st.count / totalConversations) * 100) : 0;
-                return (
-                  <div key={i} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-bold text-white capitalize">{st.status}</span>
-                      <span className="font-mono text-slate-400">{st.count} conversas ({pct}%)</span>
-                    </div>
-                    <div className="w-full bg-white/[0.06] h-2 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-purple-500 to-emerald-400" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500 text-center py-4">Nenhum dado de funil registrado no momento.</p>
-          )}
-        </div>
+        </Panel>
       </div>
     </div>
   );

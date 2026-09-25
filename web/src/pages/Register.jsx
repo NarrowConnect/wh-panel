@@ -1,11 +1,20 @@
 import React, { useState } from 'react';
-import { MessageSquare, Lock, Mail, Building2, User, ArrowRight } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+
+const slugify = (value) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 export const Register = ({ onSwitchToLogin }) => {
   const { register } = useAuth();
   const [companyName, setCompanyName] = useState('');
   const [companySlug, setCompanySlug] = useState('');
+  const [slugTouched, setSlugTouched] = useState(false);
   const [adminName, setAdminName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,9 +23,7 @@ export const Register = ({ onSwitchToLogin }) => {
 
   const handleCompanyNameChange = (val) => {
     setCompanyName(val);
-    if (!companySlug || companySlug === companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')) {
-      setCompanySlug(val.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-'));
-    }
+    if (!slugTouched) setCompanySlug(slugify(val));
   };
 
   const handleSubmit = async (e) => {
@@ -26,151 +33,101 @@ export const Register = ({ onSwitchToLogin }) => {
     try {
       await register(companyName, companySlug, adminName, email, password);
     } catch (err) {
-      setError(err.message || 'Erro ao registrar empresa.');
+      setError(err.message || 'Não foi possível criar a conta.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#070b14] p-4 relative overflow-hidden">
-      <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-500/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="w-full max-w-lg relative z-10">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 shadow-xl shadow-brand-500/25 mb-3">
-            <MessageSquare className="w-7 h-7 text-white" />
-          </div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">
-            Criar Nova Conta Corporativa
-          </h1>
-          <p className="text-slate-400 text-xs mt-1">
-            Configure sua empresa no WH Panel com banco de dados isolado (RLS)
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="flex items-center gap-2.5 mb-8">
+          <span className="w-7 h-7 rounded-md bg-accent-500 text-white text-[11px] font-bold flex items-center justify-center">WH</span>
+          <span className="text-[15px] font-medium text-white">WH Panel</span>
         </div>
 
-        <div className="glass-card rounded-2xl p-8 border border-slate-800 shadow-2xl">
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            {error && (
-              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-medium animate-fade-in">
-                {error}
-              </div>
-            )}
+        <h1 className="text-xl font-medium text-white tracking-tight">Cadastrar empresa</h1>
+        <p className="text-[13px] text-slate-400 mt-1 mb-6">Você será o administrador e poderá convidar a equipe depois.</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Nome da Empresa
-                </label>
-                <div className="relative">
-                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    required
-                    placeholder="Minha Agência"
-                    value={companyName}
-                    onChange={(e) => handleCompanyNameChange(e.target.value)}
-                    className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-              </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && <p role="alert" className="alert-error">{error}</p>}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Slug / Subdomínio
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="minha-agencia"
-                  value={companySlug}
-                  onChange={(e) => setCompanySlug(e.target.value)}
-                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Nome do Administrador
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  required
-                  placeholder="João Silva"
-                  value={adminName}
-                  onChange={(e) => setAdminName(e.target.value)}
-                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                />
-              </div>
+              <label htmlFor="reg-company" className="field-label">Nome da empresa</label>
+              <input
+                id="reg-company"
+                type="text"
+                required
+                autoFocus
+                autoComplete="organization"
+                value={companyName}
+                onChange={(e) => handleCompanyNameChange(e.target.value)}
+                className="field h-10"
+              />
             </div>
-
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                E-mail de Acesso
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="email"
-                  required
-                  placeholder="admin@empresa.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                />
-              </div>
+              <label htmlFor="reg-slug" className="field-label">Identificador</label>
+              <input
+                id="reg-slug"
+                type="text"
+                required
+                pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                title="Letras minúsculas, números e hífens"
+                placeholder="minha-empresa"
+                value={companySlug}
+                onChange={(e) => {
+                  setSlugTouched(true);
+                  setCompanySlug(slugify(e.target.value));
+                }}
+                className="field h-10 font-mono text-xs"
+              />
             </div>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Senha Segura
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  placeholder="Mínimo 6 caracteres"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                />
-              </div>
-            </div>
+          <div>
+            <label htmlFor="reg-name" className="field-label">Seu nome</label>
+            <input id="reg-name" type="text" required autoComplete="name" value={adminName} onChange={(e) => setAdminName(e.target.value)} className="field h-10" />
+          </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-3 py-2.5 px-4 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-[0.99] text-white font-semibold text-xs shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-            >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Criar Empresa e Acessar</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
+          <div>
+            <label htmlFor="reg-email" className="field-label">E-mail</label>
+            <input id="reg-email" type="email" required autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} className="field h-10" />
+          </div>
 
-          <div className="mt-5 pt-5 border-t border-slate-800 text-center">
-            <p className="text-xs text-slate-400">
-              Já tem uma conta cadastrada?{' '}
-              <button
-                onClick={onSwitchToLogin}
-                className="text-brand-400 font-semibold hover:underline"
-              >
-                Fazer Login
-              </button>
+          <div>
+            <label htmlFor="reg-password" className="field-label">Senha</label>
+            <input
+              id="reg-password"
+              type="password"
+              required
+              minLength={8}
+              pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}"
+              title="Mínimo de 8 caracteres, com letra maiúscula, minúscula e número"
+              autoComplete="new-password"
+              aria-describedby="reg-password-hint"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="field h-10"
+            />
+            <p id="reg-password-hint" className="mt-1.5 text-xs text-slate-500">
+              Mínimo de 8 caracteres, com letra maiúscula, minúscula e número.
             </p>
           </div>
-        </div>
+
+          <button type="submit" disabled={loading} className="btn btn-primary w-full h-10">
+            {loading && <Loader2 className="animate-spin" />}
+            {loading ? 'Criando conta…' : 'Criar conta'}
+          </button>
+        </form>
+
+        <p className="mt-8 pt-6 border-t border-white/[0.06] text-[13px] text-slate-400">
+          Já tem conta?{' '}
+          <button type="button" onClick={onSwitchToLogin} className="text-accent-300 hover:text-accent-200 underline-offset-4 hover:underline">
+            Entrar
+          </button>
+        </p>
       </div>
     </div>
   );
