@@ -217,6 +217,92 @@
   }
 }
 
+/*
+ * Flow canvas (React Flow). Scoped under .flow-canvas so it wins over the
+ * library stylesheet regardless of bundle order.
+ */
+.flow-canvas .react-flow {
+  --xy-background-color: transparent;
+  --xy-node-border-radius: 0.75rem;
+  --xy-edge-stroke: rgba(255, 255, 255, 0.22);
+  --xy-edge-stroke-selected: #958bd0;
+  --xy-connectionline-stroke: #958bd0;
+  --xy-selection-background-color: rgba(116, 104, 189, 0.08);
+  --xy-selection-border: 1px dashed rgba(149, 139, 208, 0.6);
+  --xy-minimap-background-color: #101115;
+  --xy-controls-button-background-color: #16171c;
+  --xy-controls-button-background-color-hover: #1d1e24;
+  --xy-controls-button-color: #a1a1aa;
+  --xy-controls-button-color-hover: #ffffff;
+  --xy-controls-button-border-color: rgba(255, 255, 255, 0.07);
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(116, 104, 189, 0.05), transparent 55%),
+    #0e0f12;
+}
+.flow-canvas .react-flow__node {
+  /* Custom nodes draw their own card. */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0.75rem;
+}
+.flow-canvas .react-flow__node:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 3px;
+}
+.flow-canvas .flow-handle {
+  width: 11px;
+  height: 11px;
+  background: #15161b;
+  border: 2px solid var(--handle-color, #8b8d94);
+  transition: transform 0.12s ease-out, background-color 0.12s ease-out;
+}
+.flow-canvas .flow-handle-in {
+  --handle-color: rgba(255, 255, 255, 0.28);
+}
+.flow-canvas .flow-handle:hover,
+.flow-canvas .flow-handle.connectingto,
+.flow-canvas .flow-handle.valid {
+  background: var(--handle-color, #8b8d94);
+}
+.flow-canvas .flow-handle.react-flow__handle-right:hover,
+.flow-canvas .flow-handle.react-flow__handle-right.connectingto {
+  transform: translate(50%, -50%) scale(1.3);
+}
+.flow-canvas .flow-handle.react-flow__handle-left:hover,
+.flow-canvas .flow-handle.react-flow__handle-left.connectingto,
+.flow-canvas .flow-handle.react-flow__handle-left.valid {
+  transform: translate(-50%, -50%) scale(1.3);
+}
+.flow-canvas .react-flow__controls {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+}
+.flow-canvas .react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.flow-canvas .react-flow__controls-button svg {
+  max-width: 11px;
+  max-height: 11px;
+}
+.flow-canvas .react-flow__minimap {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.flow-canvas .react-flow__edge.selected .react-flow__edge-path,
+.flow-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: #958bd0;
+}
+.flow-canvas .react-flow__edge:hover .react-flow__edge-path {
+  stroke-opacity: 1;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

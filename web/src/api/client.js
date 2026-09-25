@@ -61,7 +61,12 @@ export class ApiClient {
       } catch {
         // Proxy or gateway errors come back as HTML/plain text.
       }
-      if (errorData?.error) throw new Error(errorData.error);
+      if (errorData?.error) {
+        const err = new Error(errorData.error);
+        err.status = response.status;
+        err.data = errorData;
+        throw err;
+      }
       throw new Error(
         response.status >= 500
           ? 'O servidor não respondeu. Tente novamente em instantes.'
